@@ -1,0 +1,41 @@
+<html>
+<head>
+    <script src="motorSim.js"> </script>
+    <script src="chart.js"> </script>
+</head>
+<body>
+    <canvas id="chart" width="500" height="100"> </canvas>
+    <div>
+        <input type="range" min="1" max="100" value="0" id="throttle"> </input>
+    </div>
+</body>
+<script>
+    let throttleSlider = document.getElementById("throttle");
+    let canvas = document.getElementById('chart');
+    let chart = new LiveChart(canvas, 1);
+
+    let ebike = new Ebike({
+        motorWindingR: 0.2,
+        motorKv: 7.231,
+        battVoltage: 60,
+        battR: 0.143,
+        battMaxI: 28,
+        systemR: 0.1,
+        wheelRadius: 0.368,
+        wheelRR: 0.008,
+        cdA: 0.6,
+        weight: 110
+    });
+
+    throttleSlider.oninput = function() {
+        ebike.setThrottle(throttleSlider.value / 100);
+    }
+/*
+    setInterval(() => {
+        let kph = ebike.tick(0.030) * 3.6;
+        chart.addValues([kph]);
+        console.log("tick", kph);
+    }, 30);
+*/
+</script>
+</html>
