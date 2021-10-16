@@ -28,7 +28,10 @@
 <script>
     let throttleSlider = document.getElementById("throttle");
     let canvas = document.getElementById('chart');
+    canvas.width = window.innerWidth - 10;
     let chart = new LiveChart(canvas, 60);
+    chart.addSeries('speed', '#ff0000', 60);
+    chart.addSeries('effThrottle', '#00eeff', 100);
     let powerDisplay = document.getElementById("powerDisplay");
     let whKmDisplay = document.getElementById("whKmDisplay");
     let whDisplay = document.getElementById("whDisplay");
@@ -70,7 +73,7 @@
         let P = ebike.curBattI * ebike.battVoltage;
         wh += P * timeStep / 3600;
         km += ((kphOld + kph) / 2) * timeStep / 3600;
-        chart.addValues([kph]);
+        chart.addValues([kph, ebike.effThrottle*100]);
         powerDisplay.innerText = tenth(P);
         whKmDisplay.innerText = tenth(P / kph);
         whDisplay.innerText = tenth(wh);
