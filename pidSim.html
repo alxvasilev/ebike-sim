@@ -4,38 +4,83 @@
     <script src="chart.js"> </script>
 </head>
 <body>
-    <canvas id="chart" width="500" height="100"> </canvas>
-    <div>
-        <input type="range" min="1" max="100" value="0" id="throttle"> </input>
-    </div>
+    <canvas id="chart" width="1024" height="200"> </canvas>
+    <table>
+        <tr><td>Speed</td><td id=spdDisplay></td></tr>
+        <tr><td>Power</td><td id=powerDisplay></td></tr>
+        <tr><td>Wh/km</td><td id=whKmDisplay></td></tr>
+        <tr><td>Wh</td><td id=whDisplay></td></tr>
+        <tr><td>km</td><td id=kmDisplay></td></tr>
+        <tr><td>Accel</td><td id=accelDisplay></td></tr>
+        <tr><td>Wh/km(avg)</td><td id=whKmAvgDisplay></td></tr>
+        <tr>
+            <td>Throttle</td>
+            <td><input type="range" min="0" max="1000" value="0" id="throttle"></input></td>
+            <td id=throttleDisplay>0.0</td>
+        </tr>
+        <tr>
+            <td>Eff Throttle</td>
+            <td><input type="range" min="0" max="1000" value="0" id="effThrottle" disabled></input></td>
+            <td id=effThrottleDisplay>0.0</td>
+        </tr>
+    </table>
 </body>
 <script>
     let throttleSlider = document.getElementById("throttle");
     let canvas = document.getElementById('chart');
-    let chart = new LiveChart(canvas, 1);
+    let chart = new LiveChart(canvas, 60);
+    let powerDisplay = document.getElementById("powerDisplay");
+    let whKmDisplay = document.getElementById("whKmDisplay");
+    let whDisplay = document.getElementById("whDisplay");
+    let kmDisplay = document.getElementById("kmDisplay");
+    let spdDisplay = document.getElementById("spdDisplay");
+    let accelDisplay = document.getElementById("accelDisplay");
+    let throttleDisplay = document.getElementById("throttleDisplay");
+    let effThrottleDisplay = document.getElementById("effThrottleDisplay");
+    let whKmAvgDisplay = document.getElementById("whKmAvgDisplay");
 
     let ebike = new Ebike({
-        motorWindingR: 0.2,
-        motorKv: 7.231,
+        motorWindingR: 0.1,
+        motorKv: 7.4,
+        motorI0: 0.9,
         battVoltage: 60,
-        battR: 0.143,
+        battR: 0.15,
         battMaxI: 28,
         systemR: 0.1,
-        wheelRadius: 0.368,
-        wheelRR: 0.008,
-        cdA: 0.6,
-        weight: 110
+        wheelRadius: 0.3685,
+        wheelRR: 0.010,
+        cdA: 0.62,
+        weight: 110,
+        slope: 0.0
     });
 
     throttleSlider.oninput = function() {
-        ebike.setThrottle(throttleSlider.value / 100);
+        let throttle = throttleSlider.value / 1000;
+        ebike.setThrottle(throttle);
+        throttleDisplay.innerText = tenth(throttle * 100);
     }
-/*
+    let km = 0;
+    let wh = 0;
+    let kph = 0;
+    const timeStep = 0.030;
+    ebike.setThrottle(0.0);
     setInterval(() => {
-        let kph = ebike.tick(0.030) * 3.6;
+        let kphOld = kph;
+        kph = ebike.tick(timeStep) * 3.6;
+        let P = ebike.curBattI * ebike.battVoltage;
+        wh += P * timeStep / 3600;
+        km += ((kphOld + kph) / 2) * timeStep / 3600;
         chart.addValues([kph]);
-        console.log("tick", kph);
-    }, 30);
-*/
+        powerDisplay.innerText = tenth(P);
+        whKmDisplay.innerText = tenth(P / kph);
+        whDisplay.innerText = tenth(wh);
+        kmDisplay.innerText = tenth(km);
+        whKmAvgDisplay.innerText = tenth(wh/km);
+        spdDisplay.innerText = tenth(kph);
+        accelDisplay.innerText = tenth((kph - kphOld) / timeStep);
+        effThrottle.value = ebike.effThrottle * 1000;
+        effThrottleDisplay.innerText = tenth(effThrottle.value / 10);
+    }, timeStep * 1000);
+
 </script>
 </html>

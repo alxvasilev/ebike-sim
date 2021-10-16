@@ -20,7 +20,7 @@ class Ebike {
     cdA!: number;
     weight!: number;
     slope!: number;
-    throttle: number = 0;
+    protected throttle: number = 0;
     targetThrottle: number = 0;
     curRpm: number = 0;
     curBattI: number = 0;
@@ -95,7 +95,7 @@ class Ebike {
     }
     curEfficiency() {
         let mechP = this.curTorque * (this.curRpm / 60) * 2 * Math.PI;
-        let elecP = this.curBattI * this.battVoltage;
+        let elecP = this.curBattI * (this.battVoltage - this.battR*this.curBattI) - (this.curMotorI**2)*this.systemR;
         return mechP / elecP;
     }
     setThrottle(val: number) {
@@ -105,11 +105,12 @@ class Ebike {
     protected setEffThrottle(val: number) {
         this.throttle = (val > this.targetThrottle) ? this.targetThrottle : val;
     }
+    get effThrottle() { return this.throttle; }
 }
 
 function tenth(val: number) {
     let str = '' + Math.round(val * 10) / 10;
-    let dec = val % 1;
+    let dec = Math.abs(val % 1);
     if (dec < 0.05 || dec >= 0.95) {
         str += '.0';
     }
@@ -118,30 +119,30 @@ function tenth(val: number) {
 
 if (typeof window === "undefined") {
     let ebike = new Ebike({
-        motorWindingR: 0.2,
-        motorKv: 7.231,
-        motorI0: 1.15,
+        motorWindingR: 0.1,
+        motorKv: 7.4,
+        motorI0: 0.9,
         battVoltage: 60,
         battR: 0.15,
         battMaxI: 28,
         systemR: 0.1,
         wheelRadius: 0.3685,
-        wheelRR: 0.008,
-        cdA: 0.64,
+        wheelRR: 0.010,
+        cdA: 0.62,
         weight: 110,
         slope: 0.0
     });
-    ebike.setThrottle(0.36);
+    ebike.setThrottle(0.985);
     setInterval(() => {
-        let speed = ebike.tick(0.010);
+        let speed = ebike.tick(0.030);
         let mechP = ebike.curTorque * (ebike.curRpm / 60) * 2 * Math.PI;
         let elecP = ebike.curBattI * ebike.battVoltage;
         let kph = speed * 3600 / 1000;
         console.log(
-            "kph:",  tenth(kph), "thr:", tenth(ebike.throttle*100),
+            "kph:", tenth(kph), "thr:", tenth(ebike.effThrottle*100),
             "Im:", tenth(ebike.curMotorI), "Ib:", tenth(ebike.curBattI),
             "Pe:", tenth(elecP), "Pm:", tenth(mechP), "wh/Km:", tenth(elecP / kph),
             "rpm:", tenth(ebike.curRpm), "torq:", tenth(ebike.curTorque),
             "eff:", tenth(mechP  * 100 / elecP), "dragP:", tenth(ebike.dragPower()));
-    }, 10);
+    }, 30);
 }

@@ -1,43 +1,63 @@
 type Values = Array<number>;
 
 class LiveChart {
-    xStep: number;
-    valCount: number;
-    values: Values[] = [];
+    valCount: number = 0;
+    valMaxCount: number;
+    prevSample?: Values;
+    lastSample?: Values;
     canvas: HTMLCanvasElement;
     ctx: CanvasRenderingContext2D;
-    constructor(canvas: HTMLCanvasElement, xstep: number) {
+    blackPixel: ImageData;
+    yScale: number;
+    scalingY: boolean;
+    constructor(canvas: HTMLCanvasElement, maxY: number) {
         this.canvas = canvas;
-        this.xStep = xstep;
         this.ctx = canvas.getContext("2d")!;
-        this.valCount = Math.floor(canvas.width / this.xStep);
-       // this.ctx.lineWidth = 1;
+        this.yScale = canvas.height / maxY;
+        this.scalingY = (Math.abs(this.yScale - 1.0) > 0.00001);
+        if (this.scalingY) {
+//            this.ctx.scale(1, yScale);
+        }
+        this.valMaxCount = canvas.width;
+        let pix = this.blackPixel = this.ctx.createImageData(1, 1);
+        let data = pix.data;
+        data[0] = data[1] = data[2] = 0;
+        data[3] = 255;
     }
     addValues(sample: Values) {
-        if (this.values.length >= this.valCount) {
-            this.values.shift();
+        if (this.valCount >= this.valMaxCount) {
             this.scrollCanvas();
+        } else {
+            this.valCount++;
         }
-        this.values.push(sample);
-        if (this.values.length <= 1) {
+        this.prevSample = this.lastSample;
+        this.lastSample = sample;
+        if (!this.prevSample) {
             return;
         }
-        this.ctx.beginPath();
+        let ctx = this.ctx;
         let height = this.canvas.height;
-        let vals = this.values;
-        let len = vals.length;
-        for (let i = 0; i < sample.length; i++) {
-            this.ctx.moveTo(this.xStep * (len - 1), height - vals[len-2][i]);
-            this.ctx.lineTo(this.xStep * len, height - vals[len-1][i]);
+        let x = this.valCount-1;
+        let yScale = this.yScale;
+        if (this.scalingY) {
+            this.ctx.beginPath();
+            for (let i = 0; i < sample.length; i++) {
+                this.ctx.moveTo(x-1, height - this.prevSample[i]*yScale - 1);
+                this.ctx.lineTo(x, height - sample[i] * yScale - 1);
+            }
+            ctx.closePath();
+            ctx.stroke();
+        } else {
+            for (let i = 0; i < sample.length; i++) {
+                this.ctx.putImageData(this.blackPixel, x, Math.round(height - sample[i]-1));
+            }
         }
-        this.ctx.closePath();
-        this.ctx.stroke();
     }
     scrollCanvas() {
         let ctx = this.ctx;
-        var imageData = ctx.getImageData(this.xStep, 0, this.canvas.width-this.xStep, this.canvas.height);
+        var imageData = ctx.getImageData(1, 0, this.canvas.width-1, this.canvas.height);
         ctx.putImageData(imageData, 0, 0);
         // now clear the right-most pixels:
-        ctx.clearRect(this.canvas.width-this.xStep, 0, this.xStep, this.canvas.height);
+        ctx.clearRect(this.canvas.width-1, 0, 1, this.canvas.height);
     }
 };
