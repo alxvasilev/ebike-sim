@@ -35,6 +35,7 @@
         <tr><td>km</td><td id=kmDisplay></td></tr>
         <tr><td>Accel</td><td id=accelDisplay></td></tr>
         <tr><td>Wh/km(avg)</td><td id=whKmAvgDisplay></td></tr>
+        <tr><td>Heat</td><td id=motorHeatDisplay></td></tr>
         <tr>
             <td>Throttle</td>
             <td><input type="range" min="0" max="1000" value="0" id="throttle"></input></td>
@@ -45,6 +46,12 @@
             <td><input type="range" min="0" max="1000" value="0" id="effThrottle" disabled></input></td>
             <td id=effThrottleDisplay width=60>0.0</td>
         </tr>
+        <tr>
+            <td>Slope %</td>
+            <td><input type="range" min="0" max="300" value="0" id="slopeSlider"></input></td>
+            <td id=slopeDisplay width=60>0.0</td>
+        </tr>
+
       </table></td>
       <td class=group>
       <table>
@@ -84,31 +91,32 @@
 <script>
     function byId(id) { return document.getElementById(id); }
     function numVal(id) {
-        let val = document.getElementById(id).value;
+        let val = byId(id).value;
         let n = parseFloat(val);
         if (isNaN(n)) {
             throw new Error("Not a number");
         }
         return n;
     }
-    let throttleSlider = document.getElementById("throttle");
-    let canvas = document.getElementById('chart');
+    let throttleSlider = byId("throttle");
+    let slopeSlider = byId("slopeSlider");
+    let canvas = byId('chart');
     canvas.width = window.innerWidth - 10;
     let chart = new LiveChart(canvas, 60);
     chart.addSeries('speed', '#ff0000', 60);
     chart.addSeries('effThrottle', '#00eeff', 100);
     chart.addSeries('ccTarget', '#00ee00', 60);
 
-    let powerDisplay = document.getElementById("powerDisplay");
-    let whKmDisplay = document.getElementById("whKmDisplay");
-    let whDisplay = document.getElementById("whDisplay");
-    let kmDisplay = document.getElementById("kmDisplay");
-    let spdDisplay = document.getElementById("spdDisplay");
-    let accelDisplay = document.getElementById("accelDisplay");
-    let throttleDisplay = document.getElementById("throttleDisplay");
-    let effThrottleDisplay = document.getElementById("effThrottleDisplay");
-    let whKmAvgDisplay = document.getElementById("whKmAvgDisplay");
-
+    let powerDisplay = byId("powerDisplay");
+    let whKmDisplay = byId("whKmDisplay");
+    let whDisplay = byId("whDisplay");
+    let kmDisplay = byId("kmDisplay");
+    let spdDisplay = byId("spdDisplay");
+    let accelDisplay = byId("accelDisplay");
+    let throttleDisplay = byId("throttleDisplay");
+    let effThrottleDisplay = byId("effThrottleDisplay");
+    let whKmAvgDisplay = byId("whKmAvgDisplay");
+    let motorHeatDisplay = byId("motorHeatDisplay");
     let ccTargetSpeed = 0;
     let ccTargetSlider = byId("ccTarget");
 
@@ -149,6 +157,10 @@
         }
         ccPid.setTarget(ccTargetSpeed);
     }
+    slopeSlider.oninput = function() {
+        ebike.slope = slopeSlider.value / 1000;
+        byId("slopeDisplay").innerText = tenth(ebike.slope * 100);
+    }
     let km = 0;
     let wh = 0;
     let kph = 0;
@@ -170,6 +182,8 @@
         whDisplay.innerText = tenth(wh);
         kmDisplay.innerText = tenth(km);
         whKmAvgDisplay.innerText = tenth(wh/km);
+        motorHeatDisplay.innerText = tenth(ebike.motorHeatW());
+        console.log("motorI=", ebike.curMotorI);
         spdDisplay.innerText = Math.round(kph * 100)/100;
         accelDisplay.innerText = tenth((kph - kphOld) / timeStep);
         effThrottle.value = ebike.effThrottle * 1000;

@@ -98,6 +98,9 @@ class Ebike {
         let elecP = this.curBattI * (this.battVoltage - this.battR*this.curBattI) - (this.curMotorI**2)*this.systemR;
         return mechP / elecP;
     }
+    motorHeatW() {
+        return this.motorWindingR * this.curMotorI**2;
+    }
     setThrottle(val: number) {
         if (val > 1) {
             val = 1;
