@@ -1,3 +1,3 @@
 # ebike-sim
 This is a electric bike simulation environment.
-To launch, open pidSim.html
+To launch first build with typescript, then open pidSim.html
