@@ -2,10 +2,32 @@
 <head>
     <script src="motorSim.js"> </script>
     <script src="chart.js"> </script>
+    <script src="pid.js"> </script>
+    <style>
+    body {
+        font-family: monospace;
+    }
+    .group {
+        border: 1px solid #eeeeee;
+        border-radius: 2px;
+    }
+    .pidConstInput {
+        width: 45px;
+        margin-left: 4px;
+    }
+    .inl {
+        display: inline;
+    }
+    .pidParamsTable td {
+        align-content: right;
+    }
+    </style>
 </head>
 <body>
     <canvas id="chart" width="1024" height="200"> </canvas>
-    <table>
+    <table style="border-spacing: 0px;">
+     <tr>
+      <td class=group><table>
         <tr><td>Speed</td><td id=spdDisplay></td></tr>
         <tr><td>Power</td><td id=powerDisplay></td></tr>
         <tr><td>Wh/km</td><td id=whKmDisplay></td></tr>
@@ -16,22 +38,67 @@
         <tr>
             <td>Throttle</td>
             <td><input type="range" min="0" max="1000" value="0" id="throttle"></input></td>
-            <td id=throttleDisplay>0.0</td>
+            <td id=throttleDisplay width=70>0.0</td>
         </tr>
         <tr>
             <td>Eff Throttle</td>
             <td><input type="range" min="0" max="1000" value="0" id="effThrottle" disabled></input></td>
-            <td id=effThrottleDisplay>0.0</td>
+            <td id=effThrottleDisplay width=60>0.0</td>
         </tr>
+      </table></td>
+      <td class=group>
+      <table>
+          <tr><td colspan=3><input type=checkbox id=ccEnableChk>Cruise control</input></td></tr>
+          <tr>
+              <td>Target speed</td>
+              <td><input type="range" min="0" max="700" value="0" id="ccTarget"></input></td>
+              <td id=ccDisplay>0.0</td>
+          </tr>
+          <tr>
+            <td colspan=3>
+                <table class=pidParamsTable width=100%>
+                <tr>
+                  <td>kP<input class=pidConstInput id="ccPidP" value=0.45 onchange="onCcPidConstChange();"></input></td>
+                  <td>ki<input class=pidConstInput id="ccPidI" value=0.4 onchange="onCcPidConstChange();"></input></td>
+                  <td>kD<input class=pidConstInput id="ccPidD" value=0.0 onchange="onCcPidConstChange();"></input></td>
+              </tr>
+              <tr>
+                  <td>ILimP<input class=pidConstInput id="ccPidILimP" value=1.0 onchange="onCcPidConstChange();"></input></td>
+                  <td>IStartP<input class=pidConstInput id="ccPidIStartP" value=2.5 onchange="onCcPidConstChange();"></input></td>
+                  <td>ILimN<input class=pidConstInput id="ccPidILimN" value=0 onchange="onCcPidConstChange();"></input></td>
+              </tr>
+        </table>
+            </td>
+          </tr>
+          <tr><td colspan=3>err:&nbsp;<div class=inl id=ccErrDisplay></div></td></tr>
+          <tr><td colspan=3>p:&nbsp;<div class=inl id=ccPDisplay></div></td></tr>
+          <tr><td colspan=3>i:&nbsp;<div class=inl id=ccIDisplay></div></td></tr>
+          <tr><td colspan=3>d:&nbsp;<div class=inl id=ccDDisplay></div></td></tr>
+          <tr><td colspan=3>out:&nbsp;<div class=inl id=ccOutDisplay></div></td></tr>
+          <tr><td colspan=3>ovr:&nbsp;<div class=inl id=ccOvershootDisplay></div></td></tr>
+        </table>
+      <td class=group><button onclick='onResetButton()'>reset</button></td>
+     </tr>
     </table>
 </body>
 <script>
+    function byId(id) { return document.getElementById(id); }
+    function numVal(id) {
+        let val = document.getElementById(id).value;
+        let n = parseFloat(val);
+        if (isNaN(n)) {
+            throw new Error("Not a number");
+        }
+        return n;
+    }
     let throttleSlider = document.getElementById("throttle");
     let canvas = document.getElementById('chart');
     canvas.width = window.innerWidth - 10;
     let chart = new LiveChart(canvas, 60);
     chart.addSeries('speed', '#ff0000', 60);
     chart.addSeries('effThrottle', '#00eeff', 100);
+    chart.addSeries('ccTarget', '#00ee00', 60);
+
     let powerDisplay = document.getElementById("powerDisplay");
     let whKmDisplay = document.getElementById("whKmDisplay");
     let whDisplay = document.getElementById("whDisplay");
@@ -41,6 +108,16 @@
     let throttleDisplay = document.getElementById("throttleDisplay");
     let effThrottleDisplay = document.getElementById("effThrottleDisplay");
     let whKmAvgDisplay = document.getElementById("whKmAvgDisplay");
+
+    let ccTargetSpeed = 0;
+    let ccTargetSlider = byId("ccTarget");
+
+    let ccErrDisplay = byId("ccErrDisplay");
+    let ccPDisplay = byId("ccPDisplay");
+    let ccIDisplay = byId("ccIDisplay");
+    let ccDDisplay = byId("ccDDisplay");
+    let ccOutDisplay = byId("ccOutDisplay");
+    let ccOvershootDisplay = byId("ccOvershootDisplay");
 
     let ebike = new Ebike({
         motorWindingR: 0.1,
@@ -56,11 +133,21 @@
         weight: 110,
         slope: 0.0
     });
+    let ccPid = null;
 
     throttleSlider.oninput = function() {
         let throttle = throttleSlider.value / 1000;
         ebike.setThrottle(throttle);
         throttleDisplay.innerText = tenth(throttle * 100);
+    }
+    ccTargetSlider.oninput = function() {
+        let chk = byId("ccEnableChk");
+        ccTargetSpeed = ccTargetSlider.value / 10;
+        byId("ccDisplay").innerText = ccTargetSpeed;
+        if (!ccPid) {
+            enableCruiseControl();
+        }
+        ccPid.setTarget(ccTargetSpeed);
     }
     let km = 0;
     let wh = 0;
@@ -73,17 +160,72 @@
         let P = ebike.curBattI * ebike.battVoltage;
         wh += P * timeStep / 3600;
         km += ((kphOld + kph) / 2) * timeStep / 3600;
-        chart.addValues([kph, ebike.effThrottle*100]);
+        let sample = [kph, (ccPid ? ebike.targetThrottle : ebike.effThrottle) * 100];
+        if (ccPid) {
+            sample.push(ccPid.setpoint) * 3.6;
+        }
+        chart.addSample(sample);
         powerDisplay.innerText = tenth(P);
         whKmDisplay.innerText = tenth(P / kph);
         whDisplay.innerText = tenth(wh);
         kmDisplay.innerText = tenth(km);
         whKmAvgDisplay.innerText = tenth(wh/km);
-        spdDisplay.innerText = tenth(kph);
+        spdDisplay.innerText = Math.round(kph * 100)/100;
         accelDisplay.innerText = tenth((kph - kphOld) / timeStep);
         effThrottle.value = ebike.effThrottle * 1000;
         effThrottleDisplay.innerText = tenth(effThrottle.value / 10);
     }, timeStep * 1000);
 
+function enableCruiseControl() {
+    byId("ccEnableChk").checked = true;
+    ccPid = new PidController(numVal("ccPidP"), numVal("ccPidI"), numVal("ccPidD"), ccTargetSpeed);
+    ccPidConfigI();
+    ccPid.overshoot = 0;
+    setInterval(() => {
+        let curKph = ebike.curSpeed() * 3.6;
+        let output = ccPid.loop(curKph, 0.1);
+        if (output > 1) {
+            output = 1;
+        } else if (output < 0) {
+            output = 0;
+        }
+        output = Math.round(output*255);
+        ccOutDisplay.innerText = output;
+        output /= 255;
+        ccErrDisplay.innerText = ccPid.error;
+        ccPDisplay.innerText = ccPid.proportional;
+        ccIDisplay.innerText = ccPid.integral;
+        ccDDisplay.innerText = ccPid.derivative;
+
+        ebike.setThrottle(output);
+        throttleSlider.value = output * 1000;
+        throttleDisplay.innerText = Math.round(output * 10000)/100;
+        if (ccPid.error > 0) {
+            ccPid.overshoot = 0;
+        } else {
+            if (-ccPid.error > ccPid.overshoot) {
+                ccPid.overshoot = -ccPid.error;
+            }
+        }
+        ccOvershootDisplay.innerText = ccPid.overshoot;
+    }, 100);
+}
+function ccPidConfigI() {
+    ccPid.setIntegralLimits(numVal("ccPidILimP"), numVal("ccPidIStartP"), numVal("ccPidILimN"));
+}
+function onCcPidConstChange() {
+    if (!ccPid) {
+        return;
+    }
+    ccPid.setGains(numVal("ccPidP"), numVal("ccPidI"), numVal("ccPidD"), numVal("ccPidILim"));
+    ccPidConfigI();
+}
+function onResetButton() {
+    ebike.reset();
+    if (ccPid) {
+        ccPid.reset();
+    }
+    chart.reset();
+}
 </script>
 </html>

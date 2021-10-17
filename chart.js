@@ -32,11 +32,8 @@ var LiveChart = /** @class */ (function () {
     LiveChart.prototype.addSeries = function (name, color, maxVal) {
         this.series.push(new Series(name, maxVal, color, this.ctx));
     };
-    LiveChart.prototype.addValues = function (sample) {
+    LiveChart.prototype.addSample = function (sample) {
         var series = this.series;
-        if (sample.length < series.length) {
-            throw new Error("Missing values for all series");
-        }
         if (this.valCount >= this.valMaxCount) {
             this.scrollCanvas();
         }
@@ -53,17 +50,25 @@ var LiveChart = /** @class */ (function () {
         var x = this.valCount - 1;
         for (var i = 0; i < series.length; i++) {
             var ser = series[i];
+            var val = sample[i];
+            if (val == null) {
+                continue;
+            }
             if (ser.scalingY) {
+                var prevVal = this.prevSample[i];
+                if (prevVal == null) {
+                    continue;
+                }
                 var yScale = ser.yScale;
                 this.ctx.beginPath();
                 ctx.strokeStyle = series[i].color;
-                this.ctx.moveTo(x - 1, height - this.prevSample[i] * yScale - 1);
-                this.ctx.lineTo(x, height - sample[i] * yScale - 1);
+                this.ctx.moveTo(x - 1, height - prevVal * yScale - 1);
+                this.ctx.lineTo(x, height - val * yScale - 1);
                 ctx.closePath();
                 ctx.stroke();
             }
             else {
-                this.ctx.putImageData(series[i].pixel, x, Math.round(height - sample[i] - 1));
+                this.ctx.putImageData(series[i].pixel, x, Math.round(height - val - 1));
             }
         }
     };
@@ -73,6 +78,11 @@ var LiveChart = /** @class */ (function () {
         ctx.putImageData(imageData, 0, 0);
         // now clear the right-most pixels:
         ctx.clearRect(this.canvas.width - 1, 0, 1, this.canvas.height);
+    };
+    LiveChart.prototype.reset = function () {
+        this.valCount = 0;
+        this.lastSample = this.prevSample = undefined;
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     };
     return LiveChart;
 }());

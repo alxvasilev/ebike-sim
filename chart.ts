@@ -1,4 +1,4 @@
-type Values = Array<number>;
+type Sample = Array<number>;
 class Series {
     name: string;
     color: string;
@@ -30,8 +30,8 @@ class Series {
 class LiveChart {
     valCount: number = 0;
     valMaxCount: number;
-    prevSample?: Values;
-    lastSample?: Values;
+    prevSample?: Sample;
+    lastSample?: Sample;
     canvas: HTMLCanvasElement;
     ctx: CanvasRenderingContext2D;
     series: Series[] = [];
@@ -43,11 +43,8 @@ class LiveChart {
     addSeries(name: string, color: string, maxVal: number) {
         this.series.push(new Series(name, maxVal, color, this.ctx));
     }
-    addValues(sample: Values) {
+    addSample(sample: Sample) {
         let series = this.series;
-        if (sample.length < series.length) {
-            throw new Error("Missing values for all series");
-        }
         if (this.valCount >= this.valMaxCount) {
             this.scrollCanvas();
         } else {
@@ -63,16 +60,24 @@ class LiveChart {
         let x = this.valCount-1;
         for (let i = 0; i < series.length; i++) {
             let ser = series[i];
+            let val = sample[i];
+            if (val == null) {
+                continue;
+            }
             if (ser.scalingY) {
+                let prevVal = this.prevSample[i];
+                if (prevVal == null) {
+                    continue;
+                }
                 let yScale = ser.yScale;
                 this.ctx.beginPath();
                 ctx.strokeStyle = series[i].color;
-                this.ctx.moveTo(x-1, height - this.prevSample[i]*yScale - 1);
-                this.ctx.lineTo(x, height - sample[i] * yScale - 1);
+                this.ctx.moveTo(x-1, height - prevVal * yScale - 1);
+                this.ctx.lineTo(x, height - val * yScale - 1);
                 ctx.closePath();
                 ctx.stroke();
             } else {
-                this.ctx.putImageData(series[i].pixel, x, Math.round(height - sample[i]-1));
+                this.ctx.putImageData(series[i].pixel, x, Math.round(height - val - 1));
             }
         }
     }
@@ -82,5 +87,10 @@ class LiveChart {
         ctx.putImageData(imageData, 0, 0);
         // now clear the right-most pixels:
         ctx.clearRect(this.canvas.width-1, 0, 1, this.canvas.height);
+    }
+    reset() {
+        this.valCount = 0;
+        this.lastSample = this.prevSample = undefined;
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     }
 };

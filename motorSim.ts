@@ -21,7 +21,7 @@ class Ebike {
     weight!: number;
     slope!: number;
     protected throttle: number = 0;
-    targetThrottle: number = 0;
+    protected _targetThrottle: number = 0;
     curRpm: number = 0;
     curBattI: number = 0;
     curMotorI: number = 0;
@@ -80,7 +80,7 @@ class Ebike {
         }
         let battI = motorIm * this.throttle; // ignore I0 because it will make throttle equation very complex
 
-        if ((battI > this.battMaxI) || (battI < this.battMaxI && this.throttle < this.targetThrottle)) {
+        if ((battI > this.battMaxI) || (battI < this.battMaxI && this.throttle < this._targetThrottle)) {
             let throttle = -(Math.sqrt(motorBackEmf**2 + 4*this.battMaxI*totalR*(this.battVoltage-this.battMaxI*this.battR)) + motorBackEmf) / (2*this.battMaxI*this.battR - 2*this.battVoltage);
             this.setEffThrottle(throttle);
 
@@ -99,13 +99,19 @@ class Ebike {
         return mechP / elecP;
     }
     setThrottle(val: number) {
-        this.targetThrottle = val;
+        if (val > 1) {
+            val = 1;
+        } else if (val < 0) {
+            val = 0;
+        }
+        this._targetThrottle = val;
         this.setEffThrottle(val);
     }
     protected setEffThrottle(val: number) {
-        this.throttle = (val > this.targetThrottle) ? this.targetThrottle : val;
+        this.throttle = (val > this._targetThrottle) ? this._targetThrottle : val;
     }
     get effThrottle() { return this.throttle; }
+    get targetThrottle() { return this._targetThrottle; }
 }
 
 function tenth(val: number) {
