@@ -203,9 +203,9 @@ function enableCruiseControl() {
         } else if (output < 0) {
             output = 0;
         }
-        output = Math.round(output*255);
-        ccOutDisplay.innerText = output;
-        output /= 255;
+        output = Math.round(output*3000);
+        ccOutDisplay.innerText = output + 1000;
+        output /= 3000;
         ccErrDisplay.innerText = ccPid.error;
         ccPDisplay.innerText = ccPid.proportional;
         ccIDisplay.innerText = ccPid.integral;
