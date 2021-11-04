@@ -231,7 +231,7 @@ function onCcPidConstChange() {
     if (!ccPid) {
         return;
     }
-    ccPid.setGains(numVal("ccPidP"), numVal("ccPidI"), numVal("ccPidD"), numVal("ccPidILim"));
+    ccPid.setGains(numVal("ccPidP"), numVal("ccPidI"), numVal("ccPidD"));
     ccPidConfigI();
 }
 function onResetButton() {
