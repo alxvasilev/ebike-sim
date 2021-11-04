@@ -59,3 +59,60 @@ class PidController {
         this.reset();
     }
 }
+class PidLimiter {
+    prevPv!: number;
+    integral!: number;
+    setpoint: number;
+    kP!: number;
+    kI!: number;
+    kD!: number;
+    intgStart: number = 1;
+    intgLimit: number = 1;
+    //debug
+    proportional?: number;
+    derivative?: number;
+    error?: number;
+    constructor(kP: number, kI: number, kD: number, setpoint: number) {
+        this.setpoint = setpoint;
+        this.setGains(kP, kI, kD);
+    }
+    setGains(kP: number, kI: number, kD: number) {
+        this.kP = kP;
+        this.kI = kI;
+        this.kD = kD;
+        this.reset();
+    }
+    setIntegralLimits(intgLimit?: number, intgStart?: number) {
+        if (intgLimit != null) this.intgLimit = intgLimit;
+        if (intgStart != null) this.intgStart = intgStart;
+    }
+    reset() {
+        this.prevPv = this.integral = 0.0;
+    }
+    loop(pv: number, dt: number): number {
+        let error = pv - this.setpoint;
+        if (error <= 0) {
+            return 0.0;
+        }
+        let proportional = (this.kP * error);
+        if (error > this.intgStart) {
+            this.integral = 0;
+        } else {
+            this.integral += error * dt * this.kI;
+            if (this.integral > this.intgLimit) {
+                this.integral = this.intgLimit;
+            }
+        }
+        this.prevPv = pv;
+        // debug
+        this.proportional = proportional;
+        this.error = error;
+        let output = -proportional - this.integral;
+
+        return output;
+    }
+    setTarget(val: number) {
+        this.setpoint = val;
+        this.reset();
+    }
+}

@@ -76,7 +76,7 @@
           <tr><td colspan=3><input type=checkbox id=ccEnableChk>Cruise control</input></td></tr>
           <tr>
               <td>Target speed</td>
-              <td><input type="range" min="0" max="700" value="0" id="ccTarget"></input></td>
+              <td><input type="range" min="0" max="700" value="0" id="ccTargetSlider"></input></td>
               <td style="width: 4ch" id=ccDisplay>0.0</td>
           </tr>
           <tr>
@@ -102,6 +102,37 @@
           <tr><td colspan=3>out:&nbsp;<div class=inl id=ccOutDisplay></div></td></tr>
           <tr><td colspan=3>ovr:&nbsp;<div class=inl id=ccOvershootDisplay></div></td></tr>
         </table>
+      <td class=group>
+          <table>
+            <tr><td colspan=3><input type=checkbox id=slEnableChk>Speed limit</input></td></tr>
+            <tr>
+                <td>Max Speed</td>
+                <td><input type="range" min="0" max="1000" value="1000" id="slSlider"></input></td>
+                <td style="width: 4ch" id=slDisplay>100</td>
+            </tr>
+            <tr>
+              <td colspan=3>
+                  <table class=pidParamsTable width=100%>
+                  <tr>
+                    <td>kP<input class=pidConstInput id="slPidP" value=0.45 onchange="onMiPidConstChange();"></input></td>
+                    <td>ki<input class=pidConstInput id="slPidI" value=0.4 onchange="onMiPidConstChange();"></input></td>
+                    <td>kD<input class=pidConstInput id="slPidD" value=0.0 onchange="onMiPidConstChange();"></input></td>
+                </tr>
+                <tr>
+                    <td>ILim<input class=pidConstInput id="slPidILim" value=1.0 onchange="onSlPidConstChange();"></input></td>
+                    <td>IStart<input class=pidConstInput id="slPidIStart" value=2.5 onchange="onSlPidConstChange();"></input></td>
+                </tr>
+          </table>
+          </td>
+          </tr>
+          <tr><td colspan=3>err:&nbsp;<div class=inl id=slErrDisplay></div></td></tr>
+          <tr><td colspan=3>p:&nbsp;<div class=inl id=slPDisplay></div></td></tr>
+          <tr><td colspan=3>i:&nbsp;<div class=inl id=slIDisplay></div></td></tr>
+          <tr><td colspan=3>d:&nbsp;<div class=inl id=slDDisplay></div></td></tr>
+          <tr><td colspan=3>out:&nbsp;<div class=inl id=slOutDisplay></div></td></tr>
+          <tr><td colspan=3>ovr:&nbsp;<div class=inl id=slOvershootDisplay></div></td></tr>
+        </table>
+      </td>
       <td class=group><button onclick='onResetButton()'>reset</button></td>
      </tr>
     </table>
@@ -117,6 +148,7 @@
         return n;
     }
     let throttleSlider = byId("throttle");
+    let effThrottleSlider = byId("effThrottle");
     let slopeSlider = byId("slopeSlider");
     let canvas = byId('chart');
     canvas.width = window.innerWidth - 10;
@@ -137,15 +169,9 @@
     let effThrottleDisplay = byId("effThrottleDisplay");
     let whKmAvgDisplay = byId("whKmAvgDisplay");
     let motorHeatDisplay = byId("motorHeatDisplay");
-    let ccTargetSpeed = 0;
-    let ccTargetSlider = byId("ccTarget");
 
-    let ccErrDisplay = byId("ccErrDisplay");
-    let ccPDisplay = byId("ccPDisplay");
-    let ccIDisplay = byId("ccIDisplay");
-    let ccDDisplay = byId("ccDDisplay");
-    let ccOutDisplay = byId("ccOutDisplay");
-    let ccOvershootDisplay = byId("ccOvershootDisplay");
+    let slSlider = byId("slSlider");
+    let ccTargetSlider = byId("ccTargetSlider");
 
     let ebike = new Ebike({
         motorWindingR: 0.1,
@@ -161,7 +187,8 @@
         weight: 110,
         slope: 0.0
     });
-    let ccPid = null;
+    let gActivePid = null;
+    let gPidTimer = null;
 
     throttleSlider.oninput = function() {
         let throttle = throttleSlider.value / 1000;
@@ -170,13 +197,23 @@
     }
     ccTargetSlider.oninput = function() {
         let chk = byId("ccEnableChk");
-        ccTargetSpeed = ccTargetSlider.value / 10;
+        let ccTargetSpeed = ccTargetSlider.value / 10;
         byId("ccDisplay").innerText = ccTargetSpeed;
-        if (!ccPid) {
-            enableCruiseControl();
+        if (!gActivePid || gActivePid.id !== "sl") {
+            enableCruiseControl(ccTargetSpeed);
         }
         ccPid.setTarget(ccTargetSpeed);
     }
+    slSlider.oninput = function() {
+        let chk = byId("slEnableChk");
+        slSpeed = slSlider.value / 10;
+        byId("slDisplay").innerText = slSpeed;
+        if (!gActivePid || gActivePid.id !== "sl") {
+            enableSpeedLimit(slSpeed);
+        }
+        gActivePid.setTarget(slSpeed);
+    }
+
     slopeSlider.oninput = function() {
         ebike.slope = slopeSlider.value / 1000;
         byId("slopeDisplay").innerText = tenth(ebike.slope * 100);
@@ -192,9 +229,9 @@
         let P = ebike.curBattI * ebike.battVoltage;
         wh += P * timeStep / 3600;
         km += ((kphOld + kph) / 2) * timeStep / 3600;
-        let sample = [kph, (ccPid ? ebike.targetThrottle : ebike.effThrottle) * 100];
-        if (ccPid) {
-            sample.push(ccPid.setpoint) * 3.6;
+        let sample = [kph, (gActivePid ? ebike.targetThrottle : ebike.effThrottle) * 100];
+        if (gActivePid) {
+            sample.push(gActivePid.setpoint) * 3.6;
         }
         chart.addSample(sample);
         powerDisplay.innerText = tenth(P);
@@ -211,43 +248,108 @@
         effThrottleDisplay.innerText = Math.round(ebike.effThrottle * 10000) / 100;
     }, timeStep * 1000);
 
-function enableCruiseControl() {
+function enableCruiseControl(ccTargetSpeed) {
+    byId("slEnableChk").checked = false;
     byId("ccEnableChk").checked = true;
     ccPid = new PidController(numVal("ccPidP"), numVal("ccPidI"), numVal("ccPidD"), ccTargetSpeed);
-    ccPidConfigI();
+    ccPid.id = "cc";
+    ccPid.configI() = function() {
+        this.setIntegralLimits(numVal("ccPidILimP"), numVal("ccPidIStartP"), numVal("ccPidILimN"));
+    }.bind(ccPid);
+    ccPid.configI();
     ccPid.overshoot = 0;
-    setInterval(() => {
+    ccPid.slider = byId("ccTargetSlider");
+    ccPid.errDisplay = byId("ccErrDisplay");
+    ccPid.pDisplay = byId("ccPDisplay");
+    ccPid.iDisplay = byId("ccIDisplay");
+    ccPid.dDisplay = byId("ccDDisplay");
+    ccPid.outDisplay = byId("ccOutDisplay");
+    ccPid.overshootDisplay = byId("ccOvershootDisplay");
+    ccPid.process() = function() {
         let curKph = ebike.curSpeed() * 3.6;
-        let output = ccPid.loop(curKph, 0.1);
+        let output = this.loop(curKph, 0.1);
         if (output > 1) {
             output = 1;
         } else if (output < 0) {
             output = 0;
         }
-        output = Math.round(output*3000);
-        ccOutDisplay.innerText = output + 1000;
-        output /= 3000;
-        ccErrDisplay.innerText = ccPid.error;
-        ccPDisplay.innerText = ccPid.proportional;
-        ccIDisplay.innerText = ccPid.integral;
-        ccDDisplay.innerText = ccPid.derivative;
-
-        ebike.setThrottle(output);
-        throttleSlider.value = output * 1000;
-        throttleDisplay.innerText = Math.round(output * 10000)/100;
-        if (ccPid.error > 0) {
-            ccPid.overshoot = 0;
+        if (this.error > 0) {
+            this.overshoot = 0;
         } else {
-            if (-ccPid.error > ccPid.overshoot) {
-                ccPid.overshoot = -ccPid.error;
+            if (-this.error > this.overshoot) {
+                this.overshoot = -this.error;
             }
         }
-        ccOvershootDisplay.innerText = ccPid.overshoot;
+        this.overshootDisplay.innerText = this.overshoot;
+        return output;
+    }.bind(ccPid);
+    gActivePid = ccPid;
+    startPidTimer(ccPid);
+}
+function enableSpeedLimit(speedLimit) {
+    byId("ccEnableChk").checked = false;
+    byId("slEnableChk").checked = true;
+    let slPid = new PidLimiter(numVal("slPidP"), numVal("slPidI"), numVal("slPidD"), speedLimit);
+    slPid.configI = function() {
+        this.setIntegralLimits(numVal("slPidILim"), numVal("slPidIStart"));
+    }.bind(slPid);
+    slPid.configI();
+    slPid.id = "sl";
+    slPid.isLimiter = true;
+    slPid.slider = byId("slTarget");
+    slPid.errDisplay = byId("slErrDisplay");
+    slPid.pDisplay = byId("slPDisplay");
+    slPid.iDisplay = byId("slIDisplay");
+    slPid.dDisplay = byId("slDDisplay");
+    slPid.outDisplay = byId("slOutDisplay");
+    slPid.process = function() {
+        let curKph = ebike.curSpeed() * 3.6;
+        let output = this.loop(curKph, 0.1);
+        if (output == null) {
+            return null;
+        }
+        output = ebike.effThrottle + output;
+        if (output > 1.0) {
+            output = 1.0;
+        } else if (output < 0.0) {
+            output = 0.0;
+        }
+        return output;
+    }.bind(slPid);
+    gActivePid = slPid;
+    startPidTimer(slPid);
+}
+
+function startPidTimer(pid) {
+    if (gPidTimer) {
+        clearInterval(gPidTimer);
+        gPidTimer = null;
+    }
+    gPidTimer = setInterval(() => {
+        output = pid.process();
+        if (output != null) {
+            output = Math.round(output*3000);
+            pid.outDisplay.innerText = output + 1000;
+            output /= 3000;
+            if (pid.isLimiter) {
+                ebike.setEffThrottle(output);
+                effThrottleSlider.value = output * 1000;
+                effThrottleDisplay.innerText = Math.round(output * 10000)/100;
+            } else {
+                ebike.setThrottle(output);
+                throttleSlider.value = output * 1000;
+                throttleDisplay.innerText = Math.round(output * 10000)/100;
+            }
+        } else {
+            pid.outDisplay.innerText = "N/A";
+        }
+        pid.errDisplay.innerText = pid.error;
+        pid.pDisplay.innerText = pid.proportional;
+        pid.iDisplay.innerText = pid.integral;
+        pid.dDisplay.innerText = pid.derivative;
     }, 100);
 }
-function ccPidConfigI() {
-    ccPid.setIntegralLimits(numVal("ccPidILimP"), numVal("ccPidIStartP"), numVal("ccPidILimN"));
-}
+
 function onCcPidConstChange() {
     if (!ccPid) {
         return;
@@ -255,10 +357,18 @@ function onCcPidConstChange() {
     ccPid.setGains(numVal("ccPidP"), numVal("ccPidI"), numVal("ccPidD"));
     ccPidConfigI();
 }
+function onSlPidConstChange() {
+    if (!gActivePid || gActivePid.id != "sl") {
+        return;
+    }
+    gActivePid.setGains(numVal("slPidP"), numVal("slPidI"), numVal("slPidD"));
+    gActivePid.configI();
+}
+
 function onResetButton() {
     ebike.reset();
-    if (ccPid) {
-        ccPid.reset();
+    if (gActivePid) {
+        gActivePid.reset();
     }
     chart.reset();
 }
