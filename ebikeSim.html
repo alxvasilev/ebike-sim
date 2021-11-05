@@ -71,68 +71,8 @@
             <td id=slopeDisplay width=60>0.0</td>
         </tr>
       </table></td>
-      <td class=group>
-      <table>
-          <tr><td colspan=3><input type=checkbox id=ccEnableChk>Cruise control</input></td></tr>
-          <tr>
-              <td>Target speed</td>
-              <td><input type="range" min="0" max="700" value="0" id="ccTargetSlider"></input></td>
-              <td style="width: 4ch" id=ccDisplay>0.0</td>
-          </tr>
-          <tr>
-            <td colspan=3>
-                <table class=pidParamsTable width=100%>
-                <tr>
-                  <td>kP<input class=pidConstInput id="ccPidP" value=0.45 onchange="onCcPidConstChange();"></input></td>
-                  <td>ki<input class=pidConstInput id="ccPidI" value=0.4 onchange="onCcPidConstChange();"></input></td>
-                  <td>kD<input class=pidConstInput id="ccPidD" value=0.0 onchange="onCcPidConstChange();"></input></td>
-              </tr>
-              <tr>
-                  <td>ILimP<input class=pidConstInput id="ccPidILimP" value=1.0 onchange="onCcPidConstChange();"></input></td>
-                  <td>IStartP<input class=pidConstInput id="ccPidIStartP" value=2.5 onchange="onCcPidConstChange();"></input></td>
-                  <td>ILimN<input class=pidConstInput id="ccPidILimN" value=0 onchange="onCcPidConstChange();"></input></td>
-              </tr>
-        </table>
-            </td>
-          </tr>
-          <tr><td colspan=3>err:&nbsp;<div class=inl id=ccErrDisplay></div></td></tr>
-          <tr><td colspan=3>p:&nbsp;<div class=inl id=ccPDisplay></div></td></tr>
-          <tr><td colspan=3>i:&nbsp;<div class=inl id=ccIDisplay></div></td></tr>
-          <tr><td colspan=3>d:&nbsp;<div class=inl id=ccDDisplay></div></td></tr>
-          <tr><td colspan=3>out:&nbsp;<div class=inl id=ccOutDisplay></div></td></tr>
-          <tr><td colspan=3>ovr:&nbsp;<div class=inl id=ccOvershootDisplay></div></td></tr>
-        </table>
-      <td class=group>
-          <table>
-            <tr><td colspan=3><input type=checkbox id=slEnableChk>Speed limit</input></td></tr>
-            <tr>
-                <td>Max Speed</td>
-                <td><input type="range" min="0" max="1000" value="1000" id="slSlider"></input></td>
-                <td style="width: 4ch" id=slDisplay>100</td>
-            </tr>
-            <tr>
-              <td colspan=3>
-                  <table class=pidParamsTable width=100%>
-                  <tr>
-                    <td>kP<input class=pidConstInput id="slPidP" value=0.45 onchange="onMiPidConstChange();"></input></td>
-                    <td>ki<input class=pidConstInput id="slPidI" value=0.4 onchange="onMiPidConstChange();"></input></td>
-                    <td>kD<input class=pidConstInput id="slPidD" value=0.0 onchange="onMiPidConstChange();"></input></td>
-                </tr>
-                <tr>
-                    <td>ILim<input class=pidConstInput id="slPidILim" value=1.0 onchange="onSlPidConstChange();"></input></td>
-                    <td>IStart<input class=pidConstInput id="slPidIStart" value=2.5 onchange="onSlPidConstChange();"></input></td>
-                </tr>
-          </table>
-          </td>
-          </tr>
-          <tr><td colspan=3>err:&nbsp;<div class=inl id=slErrDisplay></div></td></tr>
-          <tr><td colspan=3>p:&nbsp;<div class=inl id=slPDisplay></div></td></tr>
-          <tr><td colspan=3>i:&nbsp;<div class=inl id=slIDisplay></div></td></tr>
-          <tr><td colspan=3>d:&nbsp;<div class=inl id=slDDisplay></div></td></tr>
-          <tr><td colspan=3>out:&nbsp;<div class=inl id=slOutDisplay></div></td></tr>
-          <tr><td colspan=3>ovr:&nbsp;<div class=inl id=slOvershootDisplay></div></td></tr>
-        </table>
-      </td>
+      <td class=group id=ccPidContainer></td>
+      <td class=group id=slPidContainer></td>
       <td class=group><button onclick='onResetButton()'>reset</button></td>
      </tr>
     </table>
@@ -147,6 +87,11 @@
         }
         return n;
     }
+    let ccPid = new PidControllerGui("cc", 0.45, 0.4, 0, 20);
+    ccPid.createGui(document.getElementById("ccPidContainer"), "Cruise control PID", "Maintain speed", 60);
+    let slPid = new PidLimiter("sl", 0.45, 0.4, 0, 30);
+    slPid.createGui(document.getElementById("slPidContainer"), "Sleep limit PID", "Max speed", 60);
+
     let throttleSlider = byId("throttle");
     let effThrottleSlider = byId("effThrottle");
     let slopeSlider = byId("slopeSlider");
@@ -170,9 +115,6 @@
     let whKmAvgDisplay = byId("whKmAvgDisplay");
     let motorHeatDisplay = byId("motorHeatDisplay");
 
-    let slSlider = byId("slSlider");
-    let ccTargetSlider = byId("ccTargetSlider");
-
     let ebike = new Ebike({
         motorWindingR: 0.1,
         motorKv: 7.4,
@@ -195,14 +137,15 @@
         ebike.setThrottle(throttle);
         throttleDisplay.innerText = tenth(throttle * 100);
     }
+
     ccTargetSlider.oninput = function() {
         let chk = byId("ccEnableChk");
         let ccTargetSpeed = ccTargetSlider.value / 10;
         byId("ccDisplay").innerText = ccTargetSpeed;
-        if (!gActivePid || gActivePid.id !== "sl") {
+        if (!gActivePid || gActivePid.id !== "cc") {
             enableCruiseControl(ccTargetSpeed);
         }
-        ccPid.setTarget(ccTargetSpeed);
+        gActivePid.setTarget(ccTargetSpeed);
     }
     slSlider.oninput = function() {
         let chk = byId("slEnableChk");
@@ -253,7 +196,7 @@ function enableCruiseControl(ccTargetSpeed) {
     byId("ccEnableChk").checked = true;
     ccPid = new PidController(numVal("ccPidP"), numVal("ccPidI"), numVal("ccPidD"), ccTargetSpeed);
     ccPid.id = "cc";
-    ccPid.configI() = function() {
+    ccPid.configI = function() {
         this.setIntegralLimits(numVal("ccPidILimP"), numVal("ccPidIStartP"), numVal("ccPidILimN"));
     }.bind(ccPid);
     ccPid.configI();
@@ -265,7 +208,7 @@ function enableCruiseControl(ccTargetSpeed) {
     ccPid.dDisplay = byId("ccDDisplay");
     ccPid.outDisplay = byId("ccOutDisplay");
     ccPid.overshootDisplay = byId("ccOvershootDisplay");
-    ccPid.process() = function() {
+    ccPid.process = function() {
         let curKph = ebike.curSpeed() * 3.6;
         let output = this.loop(curKph, 0.1);
         if (output > 1) {
@@ -331,15 +274,9 @@ function startPidTimer(pid) {
             output = Math.round(output*3000);
             pid.outDisplay.innerText = output + 1000;
             output /= 3000;
-            if (pid.isLimiter) {
-                ebike.setEffThrottle(output);
-                effThrottleSlider.value = output * 1000;
-                effThrottleDisplay.innerText = Math.round(output * 10000)/100;
-            } else {
-                ebike.setThrottle(output);
-                throttleSlider.value = output * 1000;
-                throttleDisplay.innerText = Math.round(output * 10000)/100;
-            }
+            ebike.setThrottle(output);
+            throttleSlider.value = output * 1000;
+            throttleDisplay.innerText = Math.round(output * 10000)/100;
         } else {
             pid.outDisplay.innerText = "N/A";
         }

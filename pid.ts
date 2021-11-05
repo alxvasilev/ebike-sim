@@ -1,4 +1,14 @@
-class PidController {
+export interface Pid {
+    kP: number;
+    kI: number;
+    kD: number;
+    setpoint: number;
+    setTarget(val: number): void;
+    setGains(kP: number, kI: number, kD: number): void;
+    loop(pv: number, dt: number): number;
+    reset(): void;
+}
+export class PidController implements Pid {
     prevPv!: number;
     integral!: number;
     intgLimitP: number = 100000000;
@@ -59,7 +69,7 @@ class PidController {
         this.reset();
     }
 }
-class PidLimiter {
+export class PidLimiter implements Pid {
     prevPv!: number;
     integral!: number;
     setpoint: number;
