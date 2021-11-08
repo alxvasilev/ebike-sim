@@ -3,9 +3,13 @@ export interface Pid {
     kI: number;
     kD: number;
     setpoint: number;
+    error: number;
+    proportional: number;
+    integral: number;
+    derivative: number;
+    isLimiter?: boolean;
     setTarget(val: number): void;
     setGains(kP: number, kI: number, kD: number): void;
-    loop(pv: number, dt: number): number;
     reset(): void;
 }
 export class PidController implements Pid {
@@ -20,9 +24,9 @@ export class PidController implements Pid {
     kI!: number;
     kD!: number;
     //debug
-    proportional?: number;
-    derivative?: number;
-    error?: number;
+    proportional!: number;
+    derivative!: number;
+    error!: number;
     constructor(kP: number, kI: number, kD: number, setpoint: number) {
         this.setpoint = setpoint;
         this.setGains(kP, kI, kD);
@@ -72,16 +76,17 @@ export class PidController implements Pid {
 export class PidLimiter implements Pid {
     prevPv!: number;
     integral!: number;
+    derivative = 0;
     setpoint: number;
     kP!: number;
     kI!: number;
     kD!: number;
     intgStart: number = 1;
     intgLimit: number = 1;
+    isLimiter = true;
     //debug
-    proportional?: number;
-    derivative?: number;
-    error?: number;
+    proportional: number = 0;
+    error: number = 0;
     constructor(kP: number, kI: number, kD: number, setpoint: number) {
         this.setpoint = setpoint;
         this.setGains(kP, kI, kD);
@@ -99,27 +104,24 @@ export class PidLimiter implements Pid {
     reset() {
         this.prevPv = this.integral = 0.0;
     }
-    loop(pv: number, dt: number): number {
-        let error = pv - this.setpoint;
-        if (error <= 0) {
-            return 0.0;
-        }
-        let proportional = (this.kP * error);
-        if (error > this.intgStart) {
+    loop(input: number, pv: number, dt: number): number {
+        let error = this.setpoint - pv;
+        if (Math.abs(error) > this.intgStart) {
             this.integral = 0;
         } else {
             this.integral += error * dt * this.kI;
-            if (this.integral > this.intgLimit) {
-                this.integral = this.intgLimit;
+            if (Math.abs(this.integral) > this.intgLimit) {
+                this.integral = this.intgLimit * Math.sign(this.integral);
             }
         }
-        this.prevPv = pv;
+        if (error >= 0) {
+            return input;
+        }
+        let proportional = (this.kP * error);
         // debug
         this.proportional = proportional;
         this.error = error;
-        let output = -proportional - this.integral;
-
-        return output;
+        return input + proportional + this.integral;
     }
     setTarget(val: number) {
         this.setpoint = val;

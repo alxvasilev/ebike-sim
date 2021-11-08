@@ -27,7 +27,7 @@ class Series {
     }
 }
 
-class LiveChart {
+export class LiveChart {
     valCount: number = 0;
     valMaxCount: number;
     prevSample?: Sample;

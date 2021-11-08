@@ -4,7 +4,7 @@ function assert(cond: any) {
     }
 }
 
-class Ebike {
+export class Ebike {
     motorWindingR!: number;
     motorKv!: number;
     motorKt!: number;

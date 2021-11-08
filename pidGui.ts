@@ -16,8 +16,12 @@ class DomBuilder {
         }
         if (attrs) {
             for (let name in attrs) {
-                if (name === "_") {
-                    elem.innerText = attrs[name];
+                if (name.startsWith("_")) {
+                    if (name.length === 1) {
+                        elem.innerText = attrs[name];
+                    } else if (name === "_x") {
+                        elem.innerHTML = attrs[name];
+                    }
                 } else {
                     elem.setAttribute(name, attrs[name]);
                 }
@@ -27,6 +31,10 @@ class DomBuilder {
             setup(elem);
         }
         return elem;
+    }
+    text(txt: string) {
+        this.currElem.appendChild(document.createTextNode(txt));
+        return this;
     }
     sub(tag: string, attrs?: Attrs|null, ref?: string|null, setup?: Function) {
         let elem = this.createElem(tag, attrs, ref, setup);
@@ -38,10 +46,10 @@ class DomBuilder {
         return this.sub("table", attrs, ref, setup);
     }
     row(attrs?: Attrs|null, ref?: string|null, setup?: Function) {
-        return this.sub("row", attrs, ref, setup);
+        return this.sub("tr", attrs, ref, setup);
     }
     cell(attrs?: Attrs|null, ref?: string|null, setup?: Function) {
-        return this.sub("cell", attrs, ref, setup);
+        return this.sub("td", attrs, ref, setup);
     }
     rowCell(attrs?: Attrs|null, ref?: string|null, setup?: Function) {
         return this.row()
@@ -82,10 +90,14 @@ function numVal(elem: HTMLInputElement) {
     }
     return n;
 }
-
+function pidValToString(val: number) {
+    return (val < 0) ? val.toPrecision(6) : (' ' + val.toPrecision(6));
+}
 export class PidBaseGui {
     id: string;
     pid: Pid;
+    overshoot: number = 0;
+    enabled: boolean = false;
     kPInput!: HTMLInputElement;
     kIInput!: HTMLInputElement;
     kDInput!: HTMLInputElement;
@@ -94,6 +106,7 @@ export class PidBaseGui {
     setpointDisplay!: HTMLElement;
     pidParamsTable!: HTMLTableElement;
     errDisplay!: HTMLElement;
+    outDisplay!: HTMLElement;
     pDisplay!: HTMLInputElement;
     iDisplay!: HTMLInputElement;
     dDisplay!: HTMLInputElement;
@@ -109,21 +122,28 @@ export class PidBaseGui {
         .table()
           .row()
             .cell({colspan: 3})
-              .tag("input", {type: "checkbox", _: title}, "enableChk",
+              .tag("input", {type: "checkbox"}, "enableChk",
                   (input: HTMLInputElement) => input.addEventListener("change", () => {
-                    this.onEnabled(input.checked);
+                      this.enabled = input.checked;
+                      this.onEnabled(this.enabled);
                   }))
+              .text(title)
               .up()
+            .up()
+          .row()
             .cell({_: sliderTitle})
               .tag("input", {type: "range", min: 0, max: maxVal*10, value: this.pid.setpoint*10}, "setpointSlider",
-                   (input: HTMLInputElement) => input.addEventListener("change", () => {
+                   (input: HTMLInputElement) => input.addEventListener("input", () => {
                        if (!this.isEnabled()) {
+                           this.enableChk.checked = this.enabled = true;
                            this.onEnabled(true);
                        }
-                       this.pid.setTarget(parseFloat(input.value));
+                       let value = parseInt(input.value) / 10;
+                       this.setpointDisplay.innerText = value.toFixed(1);
+                       this.pid.setTarget(value);
                     }))
               .up()
-            .cell({_: this.pid.setpoint * 10}, "setpointDisplay", (cell: HTMLElement) => cell.style.width="4ch")
+            .cell({_: this.pid.setpoint}, "setpointDisplay", (cell: HTMLElement) => cell.style.width="4ch")
               .up()
             .up()
           .row()
@@ -146,32 +166,32 @@ export class PidBaseGui {
               .up() // table
             .up() // cell
           .row()
-            .cell({colspan:3, _: "err:&nbsp;"})
+            .cell({colspan:3, _x: "err:&nbsp;"})
               .tag("div", {class: "inl"}, "errDisplay")
               .up()
             .up()
           .row()
-            .cell({colspan:3, _: "p:&nbsp;"})
+            .cell({colspan:3, _x: "p:&nbsp;"})
               .tag("div", {class: "inl"}, "pDisplay")
               .up()
             .up()
           .row()
-            .cell({colspan:3, _: "i:&nbsp;"})
+            .cell({colspan:3, _x: "i:&nbsp;"})
               .tag("div", {class: "inl"}, "iDisplay")
               .up()
             .up()
           .row()
-            .cell({colspan:3, _: "d:&nbsp;"})
+            .cell({colspan:3, _x: "d:&nbsp;"})
               .tag("div", {class: "inl"}, "dDisplay")
               .up()
             .up()
             .row()
-          .cell({colspan:3, _: "out:&nbsp;"})
+          .cell({colspan:3, _x: "out:&nbsp;"})
               .tag("div", {class: "inl"}, "outDisplay")
               .up()
             .up()
          .row()
-            .cell({colspan:3, _: "over:&nbsp;"})
+            .cell({colspan:3, _x: "over:&nbsp;"})
               .tag("div", {class: "inl"}, "overshootDisplay")
               .up()
             .up()
@@ -186,8 +206,30 @@ export class PidBaseGui {
         this.pid.setTarget(val);
         this.setpointDisplay.innerText = val.toString();
     }
+    handleOutput(output: number) {
+        let pid = this.pid;
+        if (output > 1) {
+            output = 1;
+        } else if (output < 0) {
+            output = 0;
+        }
+        if (pid.error > 0) {
+            this.overshoot = 0;
+        } else {
+            if (-pid.error > this.overshoot) {
+                this.overshoot = -pid.error;
+            }
+        }
+        this.errDisplay.innerText = pidValToString(pid.error);
+        this.pDisplay.innerText = pidValToString(pid.proportional);
+        this.iDisplay.innerText = pidValToString(pid.integral);
+        this.dDisplay.innerText = pidValToString(pid.derivative);
+        this.outDisplay.innerText = pidValToString(output);
+        this.overshootDisplay.innerText = pidValToString(this.overshoot);
+        return output;
+    }
     isEnabled() {
-        return this.enableChk.checked;
+        return this.enabled;
     }
 }
 
@@ -210,10 +252,16 @@ export class PidControllerGui extends PidBaseGui {
           .cell({_: "ILimN"})
             .tag("input", {class: "pidConstInput", value: 0.0}, "intgLimitNInput", (input: HTMLElement) => input.addEventListener("change", this.updateIntgConfig.bind(this)))
             .up();
+        this.updateIntgConfig();
     }
     updateIntgConfig() {
         (this.pid as PidController).setIntegralLimits(numVal(this.intgLimitPInput),
             numVal(this.intgStartPInput),numVal(this.intgLimitNInput));
+    }
+    process(input: number, dt: number) {
+        let pid = this.pid as PidController;
+        let output = pid.loop(input, dt);
+        return this.handleOutput(output);
     }
 }
 export class PidLimiterGui extends PidBaseGui {
@@ -230,7 +278,8 @@ export class PidLimiterGui extends PidBaseGui {
             .up()
           .cell({_: "IStart"})
             .tag("input", {class: "pidConstInput", value: 2.5}, "intgStartInput", (input: HTMLElement) => input.addEventListener("change", this.updateIntgConfig.bind(this)))
-            .up()
+            .up();
+        this.updateIntgConfig();
     }
     updateIntgConfig() {
         (this.pid as PidLimiter).setIntegralLimits(numVal(this.intgLimitInput), numVal(this.intgStartInput));

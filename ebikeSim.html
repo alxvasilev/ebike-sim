@@ -2,7 +2,7 @@
 <head>
     <script src="motorSim.js"> </script>
     <script src="chart.js"> </script>
-    <script src="pid.js"> </script>
+    <script src="pidGui.js"> </script>
     <style>
     body {
         font-family: monospace;
@@ -56,9 +56,18 @@
             <td>km</td><td id=kmDisplay></td>
         </tr>
         <tr>
+            <td>Effic %</td><td id=efficiencyDisplay></td>
+            <td>ThrotBin</td><td id=throttleCodeDisplay></td>
+        </tr>
+        <tr>
             <td>Throttle</td>
             <td colspan=2><input type="range" min="0" max="1000" value="0" id="throttle"></input></td>
             <td id=throttleDisplay width=70>0.0</td>
+        </tr>
+        <tr>
+            <td>PidThrot</td>
+            <td colspan=2><input type="range" min="0" max="1000" value="0" id="pidThrottle" disabled></input></td>
+            <td id=pidThrottleDisplay width=70>0.0</td>
         </tr>
         <tr>
             <td>EffThrot</td>
@@ -87,12 +96,67 @@
         }
         return n;
     }
-    let ccPid = new PidControllerGui("cc", 0.45, 0.4, 0, 20);
-    ccPid.createGui(document.getElementById("ccPidContainer"), "Cruise control PID", "Maintain speed", 60);
-    let slPid = new PidLimiter("sl", 0.45, 0.4, 0, 30);
-    slPid.createGui(document.getElementById("slPidContainer"), "Sleep limit PID", "Max speed", 60);
+    function tenth(val) {
+        let str = '' + Math.round(val * 10) / 10;
+        let dec = Math.abs(val % 1);
+        if (dec < 0.05 || dec >= 0.95) {
+            str += '.0';
+        }
+        return (str.length < 4) ? (' ' + str) : str;
+    }
+    function anyPidEnabled() {
+        return gCcPid.isEnabled() || gPidLimiters.size != 0;
+    }
+    function onPidEnabled(enabled) {
+        if (enabled) {
+            if (this.pid.isLimiter) {
+                gPidLimiters.add(this);
+            }
+            gActivePids.unshift(this);
+        } else {
+            if (this.pid.isLimiter) {
+                gPidLimiters.delete(this);
+            }
+            gActivePids.shift();
+        }
+    }
+    let ebike = new Ebike({
+        motorWindingR: 0.1,
+        motorKv: 7.4,
+        motorI0: 0.9,
+        battVoltage: 60,
+        battR: 0.15,
+        battMaxI: 28,
+        systemR: 0.1,
+        wheelRadius: 0.3685,
+        wheelRR: 0.010,
+        cdA: 0.62,
+        weight: 110,
+        slope: 0.0
+    });
+
+    const kPidLoopInterval = 0.1;
+    const kSimLoopInterval = 0.030;
+    var gThrottle = 0;
+    var gPidLimiters = new Set;
+    var gPidTimer = null;
+    var gActivePids = [];
+    var gCcPid = new PidControllerGui("cc", 0.45, 0.4, 0, 20);
+    gCcPid.createGui(document.getElementById("ccPidContainer"), "Cruise control PID", "Maintain speed", 60);
+    gCcPid.onEnabled = onPidEnabled.bind(gCcPid);
+
+    let gSlPid = new PidLimiterGui("sl", 0.45, 0.4, 0, 15);
+    gSlPid.createGui(document.getElementById("slPidContainer"), "Sleep limit PID", "Max speed", 60);
+    gSlPid.onEnabled = onPidEnabled.bind(gSlPid);
+    gSlPid.ebike = ebike;
+    gSlPid.process = function(inThrottle, dt) {
+        let pid = this.pid;
+        let output = pid.loop(inThrottle, ebike.curSpeed() * 3.6, dt);
+        return this.handleOutput(output);
+    }
 
     let throttleSlider = byId("throttle");
+    let pidThrottleSlider = byId("pidThrottle");
     let effThrottleSlider = byId("effThrottle");
     let slopeSlider = byId("slopeSlider");
     let canvas = byId('chart');
@@ -110,53 +174,19 @@
     let kmDisplay = byId("kmDisplay");
     let spdDisplay = byId("spdDisplay");
     let accelDisplay = byId("accelDisplay");
+    let throttleCodeDisplay = byId("throttleCodeDisplay");
     let throttleDisplay = byId("throttleDisplay");
+    let pidThrottleDisplay = byId("pidThrottleDisplay");
     let effThrottleDisplay = byId("effThrottleDisplay");
     let whKmAvgDisplay = byId("whKmAvgDisplay");
     let motorHeatDisplay = byId("motorHeatDisplay");
-
-    let ebike = new Ebike({
-        motorWindingR: 0.1,
-        motorKv: 7.4,
-        motorI0: 0.9,
-        battVoltage: 60,
-        battR: 0.15,
-        battMaxI: 28,
-        systemR: 0.1,
-        wheelRadius: 0.3685,
-        wheelRR: 0.010,
-        cdA: 0.62,
-        weight: 110,
-        slope: 0.0
-    });
-    let gActivePid = null;
-    let gPidTimer = null;
+    let efficiencyDisplay = byId("efficiencyDisplay");
 
     throttleSlider.oninput = function() {
-        let throttle = throttleSlider.value / 1000;
-        ebike.setThrottle(throttle);
-        throttleDisplay.innerText = tenth(throttle * 100);
+        gThrottle = throttleSlider.value / 1000;
+        throttleDisplay.innerText = tenth(gThrottle * 100);
+        processPids();
     }
-
-    ccTargetSlider.oninput = function() {
-        let chk = byId("ccEnableChk");
-        let ccTargetSpeed = ccTargetSlider.value / 10;
-        byId("ccDisplay").innerText = ccTargetSpeed;
-        if (!gActivePid || gActivePid.id !== "cc") {
-            enableCruiseControl(ccTargetSpeed);
-        }
-        gActivePid.setTarget(ccTargetSpeed);
-    }
-    slSlider.oninput = function() {
-        let chk = byId("slEnableChk");
-        slSpeed = slSlider.value / 10;
-        byId("slDisplay").innerText = slSpeed;
-        if (!gActivePid || gActivePid.id !== "sl") {
-            enableSpeedLimit(slSpeed);
-        }
-        gActivePid.setTarget(slSpeed);
-    }
-
     slopeSlider.oninput = function() {
         ebike.slope = slopeSlider.value / 1000;
         byId("slopeDisplay").innerText = tenth(ebike.slope * 100);
@@ -164,17 +194,17 @@
     let km = 0;
     let wh = 0;
     let kph = 0;
-    const timeStep = 0.030;
     ebike.setThrottle(0.0);
-    setInterval(() => {
+    function processSim() {
         let kphOld = kph;
-        kph = ebike.tick(timeStep) * 3.6;
+        kph = ebike.tick(kSimLoopInterval) * 3.6;
         let P = ebike.curBattI * ebike.battVoltage;
-        wh += P * timeStep / 3600;
-        km += ((kphOld + kph) / 2) * timeStep / 3600;
-        let sample = [kph, (gActivePid ? ebike.targetThrottle : ebike.effThrottle) * 100];
-        if (gActivePid) {
-            sample.push(gActivePid.setpoint) * 3.6;
+        wh += P * kSimLoopInterval / 3600;
+        km += ((kphOld + kph) / 2) * kSimLoopInterval / 3600;
+        let activePid = gActivePids[0];
+        let sample = [kph, (activePid ? ebike.targetThrottle : ebike.effThrottle) * 100];
+        if (activePid) {
+            sample.push(activePid.pid.setpoint) * 3.6;
         }
         chart.addSample(sample);
         powerDisplay.innerText = tenth(P);
@@ -186,126 +216,34 @@
         whKmAvgDisplay.innerText = tenth(wh/km);
         motorHeatDisplay.innerText = tenth(ebike.motorHeatW());
         spdDisplay.innerText = Math.round(kph * 100)/100;
-        accelDisplay.innerText = tenth((kph - kphOld) / timeStep);
+        accelDisplay.innerText = tenth((kph - kphOld) / kSimLoopInterval);
+        efficiencyDisplay.innerHTML = tenth(ebike.curEfficiency()*100);
         effThrottle.value = ebike.effThrottle * 1000;
-        effThrottleDisplay.innerText = Math.round(ebike.effThrottle * 10000) / 100;
-    }, timeStep * 1000);
-
-function enableCruiseControl(ccTargetSpeed) {
-    byId("slEnableChk").checked = false;
-    byId("ccEnableChk").checked = true;
-    ccPid = new PidController(numVal("ccPidP"), numVal("ccPidI"), numVal("ccPidD"), ccTargetSpeed);
-    ccPid.id = "cc";
-    ccPid.configI = function() {
-        this.setIntegralLimits(numVal("ccPidILimP"), numVal("ccPidIStartP"), numVal("ccPidILimN"));
-    }.bind(ccPid);
-    ccPid.configI();
-    ccPid.overshoot = 0;
-    ccPid.slider = byId("ccTargetSlider");
-    ccPid.errDisplay = byId("ccErrDisplay");
-    ccPid.pDisplay = byId("ccPDisplay");
-    ccPid.iDisplay = byId("ccIDisplay");
-    ccPid.dDisplay = byId("ccDDisplay");
-    ccPid.outDisplay = byId("ccOutDisplay");
-    ccPid.overshootDisplay = byId("ccOvershootDisplay");
-    ccPid.process = function() {
-        let curKph = ebike.curSpeed() * 3.6;
-        let output = this.loop(curKph, 0.1);
-        if (output > 1) {
-            output = 1;
-        } else if (output < 0) {
-            output = 0;
-        }
-        if (this.error > 0) {
-            this.overshoot = 0;
-        } else {
-            if (-this.error > this.overshoot) {
-                this.overshoot = -this.error;
-            }
-        }
-        this.overshootDisplay.innerText = this.overshoot;
-        return output;
-    }.bind(ccPid);
-    gActivePid = ccPid;
-    startPidTimer(ccPid);
-}
-function enableSpeedLimit(speedLimit) {
-    byId("ccEnableChk").checked = false;
-    byId("slEnableChk").checked = true;
-    let slPid = new PidLimiter(numVal("slPidP"), numVal("slPidI"), numVal("slPidD"), speedLimit);
-    slPid.configI = function() {
-        this.setIntegralLimits(numVal("slPidILim"), numVal("slPidIStart"));
-    }.bind(slPid);
-    slPid.configI();
-    slPid.id = "sl";
-    slPid.isLimiter = true;
-    slPid.slider = byId("slTarget");
-    slPid.errDisplay = byId("slErrDisplay");
-    slPid.pDisplay = byId("slPDisplay");
-    slPid.iDisplay = byId("slIDisplay");
-    slPid.dDisplay = byId("slDDisplay");
-    slPid.outDisplay = byId("slOutDisplay");
-    slPid.process = function() {
-        let curKph = ebike.curSpeed() * 3.6;
-        let output = this.loop(curKph, 0.1);
-        if (output == null) {
-            return null;
-        }
-        output = ebike.effThrottle + output;
-        if (output > 1.0) {
-            output = 1.0;
-        } else if (output < 0.0) {
-            output = 0.0;
-        }
-        return output;
-    }.bind(slPid);
-    gActivePid = slPid;
-    startPidTimer(slPid);
-}
-
-function startPidTimer(pid) {
-    if (gPidTimer) {
-        clearInterval(gPidTimer);
-        gPidTimer = null;
+        effThrottleDisplay.innerText = (ebike.effThrottle * 100).toFixed(2);
     }
-    gPidTimer = setInterval(() => {
-        output = pid.process();
-        if (output != null) {
-            output = Math.round(output*3000);
-            pid.outDisplay.innerText = output + 1000;
-            output /= 3000;
-            ebike.setThrottle(output);
-            throttleSlider.value = output * 1000;
-            throttleDisplay.innerText = Math.round(output * 10000)/100;
-        } else {
-            pid.outDisplay.innerText = "N/A";
-        }
-        pid.errDisplay.innerText = pid.error;
-        pid.pDisplay.innerText = pid.proportional;
-        pid.iDisplay.innerText = pid.integral;
-        pid.dDisplay.innerText = pid.derivative;
-    }, 100);
-}
 
-function onCcPidConstChange() {
-    if (!ccPid) {
-        return;
+    setInterval(processSim, kSimLoopInterval * 1000);
+    setInterval(processPids, kPidLoopInterval * 1000);
+
+function processPids() {
+        let throttle = gCcPid.isEnabled()
+            ? gCcPid.process(ebike.curSpeed() * 3.6, kPidLoopInterval)
+            : gThrottle;
+        for (let limiter of gPidLimiters) {
+            throttle = limiter.process(throttle, kPidLoopInterval);
+        }
+        throttle = Math.round(throttle * 3000);
+        throttleCodeDisplay.innerText = throttle + 1000;
+        throttle /= 3000;
+        ebike.setThrottle(throttle);
+        pidThrottleSlider.value = throttle * 1000;
+        pidThrottleDisplay.innerText = (throttle * 100).toFixed(2);
     }
-    ccPid.setGains(numVal("ccPidP"), numVal("ccPidI"), numVal("ccPidD"));
-    ccPidConfigI();
-}
-function onSlPidConstChange() {
-    if (!gActivePid || gActivePid.id != "sl") {
-        return;
-    }
-    gActivePid.setGains(numVal("slPidP"), numVal("slPidI"), numVal("slPidD"));
-    gActivePid.configI();
-}
 
 function onResetButton() {
     ebike.reset();
-    if (gActivePid) {
-        gActivePid.reset();
+    for (let pid of gActivePids) {
+        pid.pid.reset();
     }
     chart.reset();
 }
