@@ -3,8 +3,8 @@ class Series {
     name: string;
     color: string;
     pixel: ImageData;
-    yScale: number;
-    scalingY: boolean;
+    yScale!: number;
+    scalingY!: boolean;
     constructor(name: string, maxVal: number, color: string, ctx: CanvasRenderingContext2D) {
         this.name = name;
         if (color.charAt(0) !== '#') {
@@ -15,8 +15,7 @@ class Series {
             throw new Error("Error parsing color hex value");
         }
         this.color = color;
-        this.yScale = ctx.canvas.height / (maxVal+1);
-        this.scalingY = (Math.abs(this.yScale - 1.0) > 0.00001);
+        this.configScale(ctx.canvas.height, maxVal);
 
         let pix = this.pixel = ctx.createImageData(1, 1);
         let data = pix.data;
@@ -24,6 +23,10 @@ class Series {
         data[1] = (colorVal >> 16) & 0xff;
         data[2] = (colorVal >> 8) & 0xff;
         data[3] = 255;
+    }
+    configScale(canvHeight: number, maxVal: number) {
+        this.yScale = canvHeight / (maxVal+1);
+        this.scalingY = (Math.abs(this.yScale - 1.0) > 0.00001);
     }
 }
 
@@ -42,6 +45,13 @@ export class LiveChart {
     }
     addSeries(name: string, color: string, maxVal: number) {
         this.series.push(new Series(name, maxVal, color, this.ctx));
+    }
+    configSeriesScale(name: string, maxVal: number) {
+        let serie = this.series.find(ser => ser.name === name);
+        if (!serie) {
+            throw new Error("Unknown series name " + name);
+        }
+        serie.configScale(this.canvas.height, maxVal);
     }
     addSample(sample: Sample) {
         let series = this.series;

@@ -1,4 +1,4 @@
-import {Pid, PidController, PidLimiter} from "./pid";
+import {PidController} from "./pid";
 
 type Attrs = Record<string, any>;
 
@@ -32,8 +32,12 @@ class DomBuilder {
         }
         return elem;
     }
-    text(txt: string) {
-        this.currElem.appendChild(document.createTextNode(txt));
+    text(txt: string, ref?: string) {
+        let elem = document.createTextNode(txt);
+        if (ref) {
+            this.controller[ref] = elem;
+        }
+        this.currElem.appendChild(elem);
         return this;
     }
     sub(tag: string, attrs?: Attrs|null, ref?: string|null, setup?: Function) {
@@ -74,7 +78,16 @@ class DomBuilder {
         this.currElem.appendChild(elem);
         return this;
     }
-    up() {
+    up(tag?: string) {
+        if (tag) {
+            tag = tag.toUpperCase();
+            for (let parent = this.currElem.parentElement; parent; parent = parent.parentElement) {
+                if (parent.tagName == tag) {
+                    this.currElem = parent;
+                    return this;
+                }
+            }
+        }
         let parent = this.currElem.parentElement;
         if (!parent) {
             throw new Error("up: No parent element");
@@ -93,16 +106,23 @@ function numVal(elem: HTMLInputElement) {
 function pidValToString(val: number) {
     return (val < 0) ? val.toPrecision(6) : (' ' + val.toPrecision(6));
 }
-export class PidBaseGui {
-    id: string;
-    pid: Pid;
-    overshoot: number = 0;
+export class PidControllerGui {
+    pid: PidController;
+    overshoot: number|null = null;
+    lastError: number|null = null;
     enabled: boolean = false;
     kPInput!: HTMLInputElement;
     kIInput!: HTMLInputElement;
     kDInput!: HTMLInputElement;
+    intgLimitPInput!: HTMLInputElement;
+    intgStartPInput!: HTMLInputElement;
+    intgLimitNInput!: HTMLInputElement;
+    intgStartNInput!: HTMLInputElement;
     enableChk!: HTMLInputElement;
+    titleDisplay!: HTMLElement;
+    sliderTitleDisplay!: HTMLElement;
     setpointSlider!: HTMLInputElement;
+    sliderValMul!: number;
     setpointDisplay!: HTMLElement;
     pidParamsTable!: HTMLTableElement;
     errDisplay!: HTMLElement;
@@ -111,12 +131,19 @@ export class PidBaseGui {
     iDisplay!: HTMLInputElement;
     dDisplay!: HTMLInputElement;
     overshootDisplay!: HTMLInputElement;
+    isLimiter?: boolean;
+    pvFunc?: Function;
+    pv?: number;
     onEnabled = (ena: boolean) => {}
-    constructor(pid: Pid, id: string) {
-        this.id = id;
-        this.pid = pid;
+    constructor(kP: number, kI: number, kD: number, setpoint: number) {
+        this.pid = new PidController(kP, kI, kD, setpoint);
     }
-    createGui(cont: HTMLElement, title: string, sliderTitle: string, maxVal: number) {
+    becomeLimiter(pvFunc: Function) {
+        this.pvFunc = pvFunc;
+        this.isLimiter = true;
+    }
+    createGui(cont: HTMLElement, title: string, sliderTitle: string, maxVal: number, sliderValMul?: number) {
+        this.sliderValMul = sliderValMul || 10;
         let builder = new DomBuilder(this, cont);
         builder
         .table()
@@ -127,23 +154,16 @@ export class PidBaseGui {
                       this.enabled = input.checked;
                       this.onEnabled(this.enabled);
                   }))
-              .text(title)
+              .tag("div", {_: title, style: "display:inline"}, "titleDisplay")
               .up()
             .up()
           .row()
-            .cell({_: sliderTitle})
-              .tag("input", {type: "range", min: 0, max: maxVal*10, value: this.pid.setpoint*10}, "setpointSlider",
-                   (input: HTMLInputElement) => input.addEventListener("input", () => {
-                       if (!this.isEnabled()) {
-                           this.enableChk.checked = this.enabled = true;
-                           this.onEnabled(true);
-                       }
-                       let value = parseInt(input.value) / 10;
-                       this.setpointDisplay.innerText = value.toFixed(1);
-                       this.pid.setTarget(value);
-                    }))
+            .cell()
+              .tag("div", {_: sliderTitle, style: "display:inline"}, "sliderTitleDisplay")
+              .tag("input", {type: "range", min: 0, max: maxVal*this.sliderValMul, value: this.pid.setpoint*this.sliderValMul}, "setpointSlider",
+                   (input: HTMLInputElement) => input.addEventListener("input", this.updateSetpoint.bind(this)))
               .up()
-            .cell({_: this.pid.setpoint}, "setpointDisplay", (cell: HTMLElement) => cell.style.width="4ch")
+            .cell({_: this.pid.setpoint, style: "width: 4ch"}, "setpointDisplay")
               .up()
             .up()
           .row()
@@ -160,11 +180,26 @@ export class PidBaseGui {
                     .tag("input", {class: "pidConstInput", value: this.pid.kD}, "kDInput", (input: HTMLElement) => input.addEventListener("change", this.updatePidConstants.bind(this)))
                     .up()
                 .up()
-                .row(null, "IConfigGui")
-                   .up()
-                .up()
-              .up() // table
-            .up() // cell
+                .row()
+                  .cell({colspan: 3})
+                    .table({class: "pidParamsTable", width: "100%"})
+                      .row()
+                        .cell({_: "ILimP"})
+                          .tag("input", {class: "pidConstInput", value: this.pid.intgLimitP}, "intgLimitPInput", (input: HTMLElement) => input.addEventListener("change", this.updateIntgConfig.bind(this)))
+                          .up()
+                        .cell({_: "IStartP"})
+                          .tag("input", {class: "pidConstInput", value: this.pid.intgStartP}, "intgStartPInput", (input: HTMLElement) => input.addEventListener("change", this.updateIntgConfig.bind(this)))
+                          .up()
+                        .up()
+                      .row()
+                        .cell({_: "ILimN"})
+                          .tag("input", {class: "pidConstInput", value: this.pid.intgLimitN}, "intgLimitNInput", (input: HTMLElement) => input.addEventListener("change", this.updateIntgConfig.bind(this)))
+                          .up()
+                        .cell({_: "IStartN"})
+                          .tag("input", {class: "pidConstInput", value: this.pid.intgStartN}, "intgStartNInput", (input: HTMLElement) => input.addEventListener("change", this.updateIntgConfig.bind(this)))
+                    .up("table")
+              .up("table")
+          .up("table")
           .row()
             .cell({colspan:3, _x: "err:&nbsp;"})
               .tag("div", {class: "inl"}, "errDisplay")
@@ -191,20 +226,53 @@ export class PidBaseGui {
               .up()
             .up()
          .row()
-            .cell({colspan:3, _x: "over:&nbsp;"})
+            .cell({colspan:3, _x: "over/under:"})
               .tag("div", {class: "inl"}, "overshootDisplay")
               .up()
             .up()
           .up()
         .up();
+        this.updateIntgConfig();
+    }
+    reconfigSetpointSlider(maxVal: number, sliderMul: number) {
+        let oldVal = parseInt(this.setpointSlider.value) / this.sliderValMul;
+        this.sliderValMul = sliderMul;
+        this.setpointSlider.setAttribute("max", (maxVal * this.sliderValMul).toString());
+        this.setpointSlider.value = (oldVal * sliderMul).toString();
+        this.setpointDisplay.innerText = oldVal.toFixed(Math.log10(this.sliderValMul));
+    }
+    reconfigureGains(kP: number, kI: number, kD: number) {
+        this.pid.setGains(kP, kI, kD);
+        this.kPInput.value = kP.toString();
+        this.kIInput.value = kI.toString();
+        this.kDInput.value = kD.toString();
+    }
+    setIntegralLimits(limP: number, startP: number, limN?: number, startN?: number) {
+        let pid = this.pid;
+        pid.setIntegralLimits(limP, startP, limN, startN);
+        this.intgLimitPInput.value = pid.intgLimitP.toString();
+        this.intgStartPInput.value = pid.intgStartP.toString();
+        this.intgLimitNInput.value = pid.intgLimitN.toString();
+        this.intgStartNInput.value = pid.intgStartN.toString();
     }
     updatePidConstants() {
         this.pid.setGains(numVal(this.kPInput), numVal(this.kIInput), numVal(this.kDInput));
     }
+    updateIntgConfig() {
+        this.pid.setIntegralLimits(
+            numVal(this.intgLimitPInput), numVal(this.intgStartPInput),
+            numVal(this.intgLimitNInput), numVal(this.intgStartNInput)
+        );
+    }
     updateSetpoint() {
-        let val = numVal(this.setpointSlider);
-        this.pid.setTarget(val);
-        this.setpointDisplay.innerText = val.toString();
+        if (!this.isEnabled()) {
+            this.enableChk.checked = this.enabled = true;
+            this.onEnabled(true);
+        }
+        let value = parseInt(this.setpointSlider.value) / this.sliderValMul;
+        this.setpointDisplay.innerText = value.toFixed(Math.log10(this.sliderValMul));
+        this.pid.setTarget(value);
+        this.overshoot = null;
     }
     handleOutput(output: number) {
         let pid = this.pid;
@@ -213,75 +281,44 @@ export class PidBaseGui {
         } else if (output < 0) {
             output = 0;
         }
-        if (pid.error > 0) {
+
+        if ((this.lastError != null) && (pid.error * this.lastError < 0)) { // error sign changed
             this.overshoot = 0;
-        } else {
-            if (-pid.error > this.overshoot) {
-                this.overshoot = -pid.error;
+        } else if (this.overshoot != null) {
+            let absError = Math.abs(pid.error);
+            if (absError > this.overshoot) {
+                this.overshoot = absError;
             }
         }
+        this.lastError = pid.error;
+
         this.errDisplay.innerText = pidValToString(pid.error);
         this.pDisplay.innerText = pidValToString(pid.proportional);
         this.iDisplay.innerText = pidValToString(pid.integral);
         this.dDisplay.innerText = pidValToString(pid.derivative);
         this.outDisplay.innerText = pidValToString(output);
-        this.overshootDisplay.innerText = pidValToString(this.overshoot);
+        this.overshootDisplay.innerText = (this.overshoot == null)
+            ? "N/A"
+            : pidValToString(this.overshoot * Math.sign(-this.lastError));
         return output;
     }
     isEnabled() {
         return this.enabled;
     }
-}
-
-export class PidControllerGui extends PidBaseGui {
-    intgLimitPInput!: HTMLInputElement;
-    intgStartPInput!: HTMLInputElement;
-    intgLimitNInput!: HTMLInputElement;
-    constructor(id: string, kP: number, kI: number, kD: number, setpoint: number) {
-        super(new PidController(kP, kI, kD, setpoint), id);
-    }
-    createGui(cont: HTMLElement, title: string, sliderTitle: string, maxVal: number) {
-        super.createGui(cont, title, sliderTitle, maxVal);
-        new DomBuilder(this, (this as any).IConfigGui)
-          .cell({_: "ILimP"})
-            .tag("input", {class: "pidConstInput", value: 1.0}, "intgLimitPInput", (input: HTMLElement) => input.addEventListener("change", this.updateIntgConfig.bind(this)))
-            .up()
-          .cell({_: "IStartP"})
-            .tag("input", {class: "pidConstInput", value: 2.5}, "intgStartPInput", (input: HTMLElement) => input.addEventListener("change", this.updateIntgConfig.bind(this)))
-            .up()
-          .cell({_: "ILimN"})
-            .tag("input", {class: "pidConstInput", value: 0.0}, "intgLimitNInput", (input: HTMLElement) => input.addEventListener("change", this.updateIntgConfig.bind(this)))
-            .up();
-        this.updateIntgConfig();
-    }
-    updateIntgConfig() {
-        (this.pid as PidController).setIntegralLimits(numVal(this.intgLimitPInput),
-            numVal(this.intgStartPInput),numVal(this.intgLimitNInput));
-    }
-    process(input: number, dt: number) {
-        let pid = this.pid as PidController;
-        let output = pid.loop(input, dt);
+    process(pv: number, dt: number) {
+        let output = this.pid.loop(pv, dt);
         return this.handleOutput(output);
     }
-}
-export class PidLimiterGui extends PidBaseGui {
-    intgLimitInput!: HTMLInputElement;
-    intgStartInput!: HTMLInputElement;
-    constructor(id: string, kP: number, kI: number, kD: number, setpoint: number) {
-        super(new PidLimiter(kP, kI, kD, setpoint), id);
+    processLim(inThrottle: number, dt: number) {
+        let pv = this.pv = this.pvFunc!();
+        let output = this.pid.loop(pv, dt);
+        if (output > inThrottle) {
+            output = inThrottle;
+        }
+        return this.handleOutput(output);
     }
-    createGui(cont: HTMLElement, title: string, sliderTitle: string, maxVal: number) {
-        super.createGui(cont, title, sliderTitle, maxVal);
-        new DomBuilder(this, (this as any).IConfigGui)
-          .cell({_: "ILim"})
-            .tag("input", {class: "pidConstInput", value: 1.0}, "intgLimitInput", (input: HTMLElement) => input.addEventListener("change", this.updateIntgConfig.bind(this)))
-            .up()
-          .cell({_: "IStart"})
-            .tag("input", {class: "pidConstInput", value: 2.5}, "intgStartInput", (input: HTMLElement) => input.addEventListener("change", this.updateIntgConfig.bind(this)))
-            .up();
-        this.updateIntgConfig();
-    }
-    updateIntgConfig() {
-        (this.pid as PidLimiter).setIntegralLimits(numVal(this.intgLimitInput), numVal(this.intgStartInput));
+    reset() {
+        this.pid.reset();
+        this.overshoot = null;
     }
 }
