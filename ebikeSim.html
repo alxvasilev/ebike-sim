@@ -123,8 +123,8 @@
         }
     }
     function populateCfgPidModes(modes) {
-        gCfgPid.modes = modes;
-        let sel = gCfgPid.modeSelect = document.createElement("select");
+        this.modes = modes;
+        let sel = this.modeSelect = document.createElement("select");
         for (let idx in modes) {
             let mode = modes[idx];
             let option = document.createElement("option");
@@ -133,17 +133,18 @@
             sel.appendChild(option);
         }
         sel.onchange = () => {
-            let mode = gCfgPid.mode = gCfgPid.modes[gCfgPid.modeSelect.value];
-            gCfgPid.reconfigureGains(mode.kP, mode.kI, mode.kD);
-            gCfgPid.setIntegralLimits(mode.intgLimitP, mode.intgStartP, mode.intgLimitN, mode.intgStartN);
-            gCfgPid.sliderTitleDisplay.innerText = mode.sliderTitle;
-            gCfgPid.reconfigSetpointSlider(mode.maxVal, mode.sliderMul);
-            gCfgPid.pvFunc = mode.pvFunc;
-            gCfgPid.isSpeed = mode.isSpeed;
+            let mode = this.mode = this.modes[this.modeSelect.value];
+            this.reconfigureGains(mode.kP, mode.kI, mode.kD);
+            this.setIntegralLimits(mode.intgLimitP, mode.intgStartP, mode.intgLimitN, mode.intgStartN);
+            this.sliderTitleDisplay.innerText = mode.sliderTitle;
+            this.reconfigSetpointSlider(mode.maxVal, mode.sliderMul);
+            this.setPvFunc(mode.pvFunc);
+            this.outputDelayFactor = mode.delay;
+            this.isSpeed = mode.isSpeed;
             gChart.configSeriesScale("pidPv", mode.maxVal);
             gChart.configSeriesScale("pidTarget", mode.maxVal);
         };
-        gCfgPid.titleDisplay.appendChild(sel);
+        this.titleDisplay.appendChild(sel);
         sel.onchange();
     }
     const kPidLoopInterval = 0.1;
@@ -175,7 +176,7 @@
         slope: 0.0
     });
 
-    let cfgPidModes = [{
+    let cfgPidLimiterModes = [{
         // need a bit higher kI to reduce undershoot (pump-up P when speed falls below setpoint),
         // when decelerating to setpoint
         title: "Speed limit PID", sliderTitle: "Max speed", maxVal: 60, sliderMul: 10,
@@ -185,17 +186,30 @@
         title: "Acceleration limit PID", sliderTitle: "Max accel", maxVal: 6, sliderMul: 100,
         kP: 0.01, kI: 0.1, kD: 0.0, intgLimitP: 1, intgStartP: 2.5, intgLimitN: 0,
         pvFunc: () => { return ebike.accel; }
+    }, {
+        title: "Motor Current limit PID", sliderTitle: "Max IMotor", maxVal: 100, sliderMul: 10,
+        kP: 0.3, kI: 0.4, kD: 0.0, intgLimitP: 10, intgStartP: 5, intgLimitN: 0, delay: 100,
+        pvFunc: () => { return ebike.curMotorI; }
+    }];
+
+    let cfgPidCtrlModes = [{
+        title: "Cruise control PID", sliderTitle: "Maintain speed", maxVal: 60, sliderMul: 10,
+        kP: 0.4, kI: 0.4, kD: 0.0, intgLimitP: 1, intgStartP: 2.5, intgLimitN: 0, isSpeed: true,
+        pvFunc: () => { return ebike.curSpeed() * 3.6; }
+    }, {
+        title: "Current Throttle PID", sliderTitle: "Motor Amps", maxVal: 100, sliderMul: 10,
+        kP: 0.4, kI: 0.4, kD: 0.0, intgLimitP: 10, intgStartP: 210, intgLimitN: 0, delay: 80,
+        pvFunc: () => { return ebike.curMotorI; }
     }];
 
     var gCcPid = new PidControllerGui(0.45, 0.4, 0, 20);
-    gCcPid.pid.setIntegralLimits(1, 2.5, 0);
-    gCcPid.createGui(document.getElementById("ccPidContainer"), "Cruise control PID", "Keep speed", 60);
+    gCcPid.createGui(document.getElementById("ccPidContainer"), "", "", 60);
+    populateCfgPidModes.call(gCcPid, cfgPidCtrlModes);
     gCcPid.onEnabled = onPidEnabled.bind(gCcPid);
 
-    var gCfgPid = new PidControllerGui(0.45, 0.4, 0, 0);
-    gCfgPid.becomeLimiter(); // no pv callback, will set it from the modes array
+    var gCfgPid = new PidControllerGui(0.45, 0.4, 0, 0, true);
     gCfgPid.createGui(document.getElementById("cfgPidContainer"), "", "", 100);
-    populateCfgPidModes(cfgPidModes);
+    populateCfgPidModes.call(gCfgPid, cfgPidLimiterModes);
     gCfgPid.onEnabled = onPidEnabled.bind(gCfgPid);
 
     let throttleSlider = byId("throttle");
@@ -268,7 +282,7 @@
 
 function processPids() {
         let throttle = gCcPid.isEnabled()
-            ? gCcPid.process(ebike.curSpeed() * 3.6, kPidLoopInterval)
+            ? gCcPid.process(kPidLoopInterval)
             : gThrottle;
         for (let limiter of gPidLimiters) {
             throttle = limiter.processLim(throttle, kPidLoopInterval);

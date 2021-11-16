@@ -132,15 +132,17 @@ export class PidControllerGui {
     dDisplay!: HTMLInputElement;
     overshootDisplay!: HTMLInputElement;
     isLimiter?: boolean;
-    pvFunc?: Function;
+    pvFunc!: Function;
     pv?: number;
+    outputDelayFactor?: number;
+    output: number|null = null;
     onEnabled = (ena: boolean) => {}
-    constructor(kP: number, kI: number, kD: number, setpoint: number) {
+    constructor(kP: number, kI: number, kD: number, setpoint: number, isLimiter?: boolean) {
+        this.isLimiter = isLimiter;
         this.pid = new PidController(kP, kI, kD, setpoint);
     }
-    becomeLimiter(pvFunc: Function) {
+    setPvFunc(pvFunc: Function) {
         this.pvFunc = pvFunc;
-        this.isLimiter = true;
     }
     createGui(cont: HTMLElement, title: string, sliderTitle: string, maxVal: number, sliderValMul?: number) {
         this.sliderValMul = sliderValMul || 10;
@@ -276,11 +278,19 @@ export class PidControllerGui {
     }
     handleOutput(output: number) {
         let pid = this.pid;
+        if (this.outputDelayFactor) {
+            if (this.output != null) {
+                output = (this.output * this.outputDelayFactor + output) / (this.outputDelayFactor+1);
+            } else {
+                this.output = output;
+            }
+        }
         if (output > 1) {
             output = 1;
         } else if (output < 0) {
             output = 0;
         }
+        this.output = output;
 
         if ((this.lastError != null) && (pid.error * this.lastError < 0)) { // error sign changed
             this.overshoot = 0;
@@ -305,12 +315,12 @@ export class PidControllerGui {
     isEnabled() {
         return this.enabled;
     }
-    process(pv: number, dt: number) {
-        let output = this.pid.loop(pv, dt);
-        return this.handleOutput(output);
+    process(dt: number) {
+        let pv = this.pv = this.pvFunc();
+        return this.handleOutput(this.pid.loop(pv, dt));
     }
     processLim(inThrottle: number, dt: number) {
-        let pv = this.pv = this.pvFunc!();
+        let pv = this.pv = this.pvFunc();
         let output = this.pid.loop(pv, dt);
         if (output > inThrottle) {
             output = inThrottle;

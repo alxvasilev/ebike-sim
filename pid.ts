@@ -1,5 +1,5 @@
 export class PidController {
-    prevPv!: number;
+    prevError!: number;
     integral!: number;
     intgLimitP: number = 100000000;
     intgLimitN: number = -100000000;
@@ -24,7 +24,7 @@ export class PidController {
         this.intgStartN = (intgStartN != null) ? intgStartN : -intgStartP;
     }
     reset() {
-        this.prevPv = this.integral = 0.0;
+        this.prevError = this.integral = 0.0;
     }
     loop(pv: number, dt: number): number {
         let error = this.setpoint - pv;
@@ -39,9 +39,9 @@ export class PidController {
                 this.integral = this.intgLimitN;
             }
         }
-        let derivative = this.kD * (pv - this.prevPv) / dt;
+        let derivative = (this.prevError != null) ? (this.kD * (error - this.prevError!) / dt) : 0;
         let output = proportional + this.integral + derivative;
-        this.prevPv = pv;
+        this.prevError = error;
         // debug
         this.proportional = proportional;
         this.derivative = derivative;
