@@ -48,6 +48,10 @@
             <td>IBatt</td><td id=IbattDisplay></td>
         </tr>
         <tr>
+            <td>Whl Rpm</td><td id=wheelRpmDisplay></td>
+            <td>Mtr Rpm</td><td id=motorRpmDisplay></td>
+        </tr>
+        <tr>
             <td>Wh/km</td><td id=whKmDisplay></td>
             <td>Avg</td><td id=whKmAvgDisplay></td>
         </tr>
@@ -237,6 +241,8 @@
     let whKmAvgDisplay = byId("whKmAvgDisplay");
     let motorHeatDisplay = byId("motorHeatDisplay");
     let efficiencyDisplay = byId("efficiencyDisplay");
+    let wheelRpmDisplay = byId("wheelRpmDisplay");
+    let motorRpmDispay = byId("motorRpmDisplay");
 
     throttleSlider.oninput = function() {
         gThrottle = throttleSlider.value / 1000;
@@ -283,7 +289,9 @@
         spdDisplay.innerText = Math.round(kph * 100)/100;
         ebike.accel = (kph - kphOld) / kSimLoopInterval;
         accelDisplay.innerText = Math.round(ebike.accel * 100)/100;
-        efficiencyDisplay.innerHTML = tenth(ebike.curEfficiency()*100);
+        efficiencyDisplay.innerText = tenth(ebike.curEfficiency()*100);
+        wheelRpmDisplay.innerText = tenth(ebike.curRpm);
+        motorRpmDispay.innerText = ebike.disengagedRpm != null ? tenth(ebike.disengagedRpm) : "Engagd";
         effThrottle.value = ebike.effThrottle * 1000;
         effThrottleDisplay.innerText = (ebike.effThrottle * 100).toFixed(2);
     }

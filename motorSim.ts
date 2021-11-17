@@ -26,6 +26,7 @@ export class Ebike {
     curBattI: number = 0;
     curMotorI: number = 0;
     curTorque: number = 0;
+    disengagedRpm?: number;
     constructor(config: {
         motorWindingR: number,
         motorKv: number,
@@ -54,6 +55,9 @@ export class Ebike {
         this.curRpm = newSpeed * 60 / this.wheelCircumf;
         return newSpeed;
     }
+    rpmToKph(rpm: number) {
+        return this.wheelCircumf * rpm * 3.6 / 60;
+    }
     curSpeed() {
         return this.wheelCircumf * this.curRpm / 60;
     }
@@ -77,6 +81,16 @@ export class Ebike {
         let motorIm = -(motorBackEmf + this.battR*(this.throttle**2)*this.motorI0 - this.throttle*this.battVoltage) / (totalR + this.battR*(this.throttle**2));
         if (motorIm < 0.0) {
             motorIm = 0.0;
+            let newDisgRpm = this.motorKv * (this.throttle*this.battVoltage - this.battR*this.motorI0);
+            this.disengagedRpm = (this.disengagedRpm == null)
+                ? this.curRpm
+                : (this.disengagedRpm * 19 + newDisgRpm) / 20;
+            if (this.disengagedRpm < 0) {
+                this.disengagedRpm = 0;
+            }
+        }
+        else {
+            delete this.disengagedRpm;
         }
         let battI = motorIm * this.throttle; // ignore I0 because it will make throttle equation very complex
 
