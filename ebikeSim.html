@@ -147,12 +147,17 @@
         this.titleDisplay.appendChild(sel);
         sel.onchange();
     }
+    const kWheelRadius = 0.3685; // in meters
     const kPidLoopInterval = 0.1;
     const kSimLoopInterval = 0.030;
+    const kSpeedSensorPulseDistance = ((Math.PI * 2 * kWheelRadius) / 1000) / 3; // in km
+
     var gThrottle = 0;
     var gPidLimiters = new Set;
     var gPidTimer = null;
     var gActivePids = [];
+    var spdDistanceSinceLastPulse = 0;
+
     let canvas = byId('chart');
     canvas.width = window.innerWidth - 10;
     let gChart = new LiveChart(canvas, 60);
@@ -169,19 +174,19 @@
         battR: 0.15,
         battMaxI: 28,
         systemR: 0.1,
-        wheelRadius: 0.3685,
+        wheelRadius: kWheelRadius,
         wheelRR: 0.010,
         cdA: 0.62,
         weight: 110,
         slope: 0.0
     });
-
+    var gSensorSpeed = 0;
     let cfgPidLimiterModes = [{
         // need a bit higher kI to reduce undershoot (pump-up P when speed falls below setpoint),
         // when decelerating to setpoint
         title: "Speed limit PID", sliderTitle: "Max speed", maxVal: 60, sliderMul: 10,
         kP: 0.4, kI: 0.5, kD: 0.0, intgLimitP: 1, intgStartP: 2.5, intgLimitN: 0, isSpeed: true,
-        pvFunc: () => { return ebike.curSpeed() * 3.6; }
+        pvFunc: () => { return gSensorSpeed; }
     }, {
         title: "Acceleration limit PID", sliderTitle: "Max accel", maxVal: 6, sliderMul: 100,
         kP: 0.01, kI: 0.1, kD: 0.0, intgLimitP: 1, intgStartP: 2.5, intgLimitN: 0,
@@ -195,7 +200,7 @@
     let cfgPidCtrlModes = [{
         title: "Cruise control PID", sliderTitle: "Maintain speed", maxVal: 60, sliderMul: 10,
         kP: 0.4, kI: 0.4, kD: 0.0, intgLimitP: 1, intgStartP: 2.5, intgLimitN: 0, isSpeed: true,
-        pvFunc: () => { return ebike.curSpeed() * 3.6; }
+        pvFunc: () => { return gSensorSpeed; }
     }, {
         title: "Current Throttle PID", sliderTitle: "Motor Amps", maxVal: 100, sliderMul: 10,
         kP: 0.4, kI: 0.4, kD: 0.0, intgLimitP: 10, intgStartP: 210, intgLimitN: 0, delay: 80,
@@ -251,7 +256,13 @@
         kph = ebike.tick(kSimLoopInterval) * 3.6;
         let P = ebike.curBattI * ebike.battVoltage;
         wh += P * kSimLoopInterval / 3600;
-        km += ((kphOld + kph) / 2) * kSimLoopInterval / 3600;
+        let travel = ((kphOld + kph) / 2) * kSimLoopInterval / 3600;
+        km += travel;
+        spdDistanceSinceLastPulse += travel;
+        if (spdDistanceSinceLastPulse >= kSpeedSensorPulseDistance) {
+            spdDistanceSinceLastPulse = 0;
+            gSensorSpeed = kph;
+        }
         let activePid = gActivePids[0];
         let sample;
         if (activePid) {
@@ -297,6 +308,8 @@ function processPids() {
 
 function onResetButton() {
     ebike.reset();
+    spdDistanceSinceLastPulse = 0;
+    gSensorSpeed = 0;
     for (let pid of gActivePids) {
         pid.reset();
     }
