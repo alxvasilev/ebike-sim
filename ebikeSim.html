@@ -83,6 +83,10 @@
             <td colspan=2><input type="range" min="0" max="300" value="0" id="slopeSlider"></input></td>
             <td id=slopeDisplay width=60>0.0</td>
         </tr>
+        <tr>
+            <td>Spk magnets</td>
+            <td colspan=3><input type=number id=spokeMagnetCount value=3 style="width:4ch" onchange="updateSpokeMagnetCount()"></input></td>
+        </tr>
       </table></td>
       <td class=group id=ccPidContainer></td>
       <td class=group id=slPidContainer></td>
@@ -151,10 +155,14 @@
         this.titleDisplay.appendChild(sel);
         sel.onchange();
     }
+    function updateSpokeMagnetCount() {
+        kSpeedSensorPulseDistance = ((Math.PI * 2 * kWheelRadius) / 1000) / byId("spokeMagnetCount").value; // in km
+    }
     const kWheelRadius = 0.3685; // in meters
     const kPidLoopInterval = 0.1;
     const kSimLoopInterval = 0.030;
-    const kSpeedSensorPulseDistance = ((Math.PI * 2 * kWheelRadius) / 1000) / 3; // in km
+    var kSpeedSensorPulseDistance;
+    updateSpokeMagnetCount();
 
     var gThrottle = 0;
     var gPidLimiters = new Set;
@@ -203,7 +211,7 @@
 
     let cfgPidCtrlModes = [{
         title: "Cruise control PID", sliderTitle: "Maintain speed", maxVal: 60, sliderMul: 10,
-        kP: 0.4, kI: 0.4, kD: 0.0, intgLimitP: 1, intgStartP: 2.5, intgLimitN: 0, isSpeed: true,
+        kP: 0.3, kI: 0.2, kD: 0.0, intgLimitP: 1, intgStartP: 5, intgLimitN: 0, isSpeed: true,
         pvFunc: () => { return gSensorSpeed; }
     }, {
         title: "Current Throttle PID", sliderTitle: "Motor Amps", maxVal: 100, sliderMul: 10,
