@@ -61,6 +61,9 @@ export class Ebike {
     curSpeed() {
         return this.wheelCircumf * this.curRpm / 60;
     }
+    get curBattVoltage() {
+        return this.battVoltage - this.curBattI * this.battR;
+    }
     dragForce() {
         let speed = this.curSpeed();
         let weightForce = this.weight * 9.81;

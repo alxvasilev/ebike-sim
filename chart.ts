@@ -25,7 +25,7 @@ class Series {
         data[3] = 255;
     }
     configScale(canvHeight: number, maxVal: number) {
-        this.yScale = canvHeight / (maxVal+1);
+        this.yScale = canvHeight / (maxVal);
         this.scalingY = (Math.abs(this.yScale - 1.0) > 0.00001);
     }
 }
@@ -82,12 +82,12 @@ export class LiveChart {
                 let yScale = ser.yScale;
                 this.ctx.beginPath();
                 ctx.strokeStyle = series[i].color;
-                this.ctx.moveTo(x-1, height - prevVal * yScale - 1);
-                this.ctx.lineTo(x, height - val * yScale - 1);
+                this.ctx.moveTo(x-1, height - prevVal * yScale);
+                this.ctx.lineTo(x, height - val * yScale);
                 ctx.closePath();
                 ctx.stroke();
             } else {
-                this.ctx.putImageData(series[i].pixel, x, Math.round(height - val - 1));
+                this.ctx.putImageData(series[i].pixel, x, Math.round(height - val));
             }
         }
     }

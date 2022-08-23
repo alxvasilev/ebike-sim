@@ -134,7 +134,7 @@ export class PidControllerGui {
     isLimiter?: boolean;
     pvFunc!: Function;
     pv?: number;
-    outputDelayFactor?: number;
+    outputSmaFactor?: number; // enable slowing output changes via moving average
     output: number|null = null;
     onEnabled = (ena: boolean) => {}
     constructor(kP: number, kI: number, kD: number, setpoint: number, isLimiter?: boolean) {
@@ -278,12 +278,8 @@ export class PidControllerGui {
     }
     handleOutput(output: number) {
         let pid = this.pid;
-        if (this.outputDelayFactor) {
-            if (this.output != null) {
-                output = (this.output * this.outputDelayFactor + output) / (this.outputDelayFactor+1);
-            } else {
-                this.output = output;
-            }
+        if (this.outputSmaFactor && this.output != null) {
+            output = (this.output * this.outputSmaFactor + output) / (this.outputSmaFactor + 1);
         }
         if (output > 1) {
             output = 1;

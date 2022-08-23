@@ -69,17 +69,17 @@
             <td>ThrotBin</td><td id=throttleCodeDisplay></td>
         </tr>
         <tr>
-            <td>Throttle</td>
+            <td title="Throttle manual input, when no pid is controlling it">Man Throttle</td>
             <td colspan=2><input type="range" min="0" max="1000" value="0" id="throttle"></input></td>
             <td id=throttleDisplay width=70>0.0</td>
         </tr>
         <tr>
-            <td>PidThrot</td>
+            <td title="Throttle value that the PID(s) want to set, but can be limited by the controller's battery current limit">PidThrot</td>
             <td colspan=2><input type="range" min="0" max="1000" value="0" id="pidThrottle" disabled></input></td>
             <td id=pidThrottleDisplay width=70>0.0</td>
         </tr>
         <tr>
-            <td>EffThrot</td>
+            <td title="Actual throttle applied, after controller current limit">EffThrot</td>
             <td colspan=2><input type="range" min="0" max="1000" value="0" id="effThrottle" disabled></input></td>
             <td id=effThrottleDisplay width=60>0.0</td>
         </tr>
@@ -90,7 +90,7 @@
         </tr>
         <tr>
             <td>Spk magnets</td>
-            <td colspan=3><input type=number id=spokeMagnetCount value=3 style="width:4ch" onchange="updateSpokeMagnetCount()"></input></td>
+            <td colspan=3><input type=number id=spokeMagnetCount value=3 style="width:6ch" onchange="updateSpokeMagnetCount()"></input></td>
         </tr>
       </table></td>
       <td class=group id=ccPidContainer></td>
@@ -127,12 +127,16 @@
                 gPidLimiters.add(this);
             }
             gActivePids.unshift(this);
+            setupChartScale(this);
         } else {
             if (this.isLimiter) {
                 gPidLimiters.delete(this);
             }
             let idx = gActivePids.indexOf(this);
             gActivePids.splice(idx, 1);
+            if (gActivePids[0]) {
+                setupChartScale(gActivePids[0]);
+            }
         }
     }
     function populateCfgPidModes(modes) {
@@ -152,13 +156,20 @@
             this.sliderTitleDisplay.innerText = mode.sliderTitle;
             this.reconfigSetpointSlider(mode.maxVal, mode.sliderMul);
             this.setPvFunc(mode.pvFunc);
-            this.outputDelayFactor = mode.delay;
+            this.outputSmaFactor = mode.sma;
             this.isSpeed = mode.isSpeed;
-            gChart.configSeriesScale("pidPv", mode.maxVal);
-            gChart.configSeriesScale("pidTarget", mode.maxVal);
+            setupChartScale(this);
         };
         this.titleDisplay.appendChild(sel);
         sel.onchange();
+    }
+    function setupChartScale(pid) {
+        if (gActivePids[0] !== pid) {
+            return;
+        }
+        const mode = pid.mode;
+        gChart.configSeriesScale("pidPv", mode.maxVal);
+        gChart.configSeriesScale("pidTarget", mode.maxVal);
     }
     function updateSpokeMagnetCount() {
         kSpeedSensorPulseDistance = ((Math.PI * 2 * kWheelRadius) / 1000) / byId("spokeMagnetCount").value; // in km
@@ -210,7 +221,7 @@
         pvFunc: () => { return ebike.accel; }
     }, {
         title: "Motor Current limit PID", sliderTitle: "Max IMotor", maxVal: 100, sliderMul: 10,
-        kP: 0.3, kI: 0.4, kD: 0.0, intgLimitP: 10, intgStartP: 5, intgLimitN: 0, delay: 100,
+        kP: 0.3, kI: 0.4, kD: 0.0, intgLimitP: 10, intgStartP: 5, intgLimitN: 0,
         pvFunc: () => { return ebike.curMotorI; }
     }];
 
@@ -220,12 +231,16 @@
         pvFunc: () => { return gSensorSpeed; }
     }, {
         title: "Motor Current Throttle PID", sliderTitle: "Motor Amps", maxVal: 100, sliderMul: 10,
-        kP: 0.4, kI: 0.4, kD: 0.0, intgLimitP: 10, intgStartP: 210, intgLimitN: 0, delay: 80,
+        kP: 0.4, kI: 0.4, kD: 0.0, intgLimitP: 10, intgStartP: 210, intgLimitN: 0, sma: 80,
         pvFunc: () => { return ebike.curMotorI; }
     },{
-        title: "Batt Current Throttle PID", sliderTitle: "Batt Amps", maxVal: ebike.battMaxI, sliderMul: 10,
-        kP: 0.4, kI: 0.4, kD: 0.0, intgLimitP: 10, intgStartP: 210, intgLimitN: 0, delay: 80,
+        title: "Batt Current Throttle PID", sliderTitle: "Batt Current", maxVal: ebike.battMaxI, sliderMul: 10,
+        kP: 0.5, kI: 0.5, kD: 0.0, intgLimitP: 1, intgStartP: 5, intgLimitN: 0, sma: 80,
         pvFunc: () => { return ebike.curBattI; }
+    },{
+        title: "Batt Power Throttle PID", sliderTitle: "Batt Power", maxVal: ebike.battMaxI * ebike.battVoltage, sliderMul: 10,
+        kP: 0.005, kI: 0.2, kD: 0.0, intgLimitP: 1, intgStartP: 200, intgLimitN: -1, sma: 80,
+        pvFunc: () => { return ebike.curBattI * ebike.curBattVoltage; }
     }];
 
     var gCcPid = new PidControllerGui(0.45, 0.4, 0, 20);
@@ -274,10 +289,13 @@
     let wh = 0;
     let kph = 0;
     ebike.setThrottle(0.0);
+    /** Runs a tick of the physical simulation and updates the graphs
+      * The physical simulation ticks are much more frequent than the pid processing ticks
+      */
     function processSim() {
         let kphOld = kph;
         kph = ebike.tick(kSimLoopInterval) * 3.6;
-        let P = ebike.curBattI * ebike.battVoltage;
+        let P = ebike.curBattI * ebike.curBattVoltage;
         wh += P * kSimLoopInterval / 3600;
         let travel = ((kphOld + kph) / 2) * kSimLoopInterval / 3600;
         km += travel;
