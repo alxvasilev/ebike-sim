@@ -30,7 +30,12 @@
     </style>
 </head>
 <body>
-    <canvas id="chart" width="1024" height="200"> </canvas>
+    <canvas id="chart" width="1024" height="200" title="
+        Red - The value that the PID controls. For example, for Cruise Control this is the speed
+        Green - Bike speed
+        Blue - Effective throttle
+        Gray - The PID setpoint">
+    </canvas>
     <table style="border-spacing: 0px;">
      <tr>
       <td class=group>
@@ -174,9 +179,9 @@
     canvas.width = window.innerWidth - 10;
     let gChart = new LiveChart(canvas, 60);
     gChart.addSeries('speed', '#00ff00', 60);
-    gChart.addSeries('effThrottle', '#00eeff', 100);
-    gChart.addSeries('pidPv', '#ff0000', 60);
-    gChart.addSeries('pidTarget', '#bbbbbb', 60);
+    gChart.addSeries('effThrottle', '#00eeff', 100); // Actual throttle applied
+    gChart.addSeries('pidPv', '#ff0000', 60); // the PID process value (PV), i.e. the value that the PID controls
+    gChart.addSeries('pidTarget', '#bbbbbb', 60); // the PID setpoint (SP)
 
     let ebike = new Ebike({
         motorWindingR: 0.15,
@@ -214,9 +219,13 @@
         kP: 0.3, kI: 0.2, kD: 0.0, intgLimitP: 1, intgStartP: 5, intgLimitN: 0, isSpeed: true,
         pvFunc: () => { return gSensorSpeed; }
     }, {
-        title: "Current Throttle PID", sliderTitle: "Motor Amps", maxVal: 100, sliderMul: 10,
+        title: "Motor Current Throttle PID", sliderTitle: "Motor Amps", maxVal: 100, sliderMul: 10,
         kP: 0.4, kI: 0.4, kD: 0.0, intgLimitP: 10, intgStartP: 210, intgLimitN: 0, delay: 80,
         pvFunc: () => { return ebike.curMotorI; }
+    },{
+        title: "Batt Current Throttle PID", sliderTitle: "Batt Amps", maxVal: ebike.battMaxI, sliderMul: 10,
+        kP: 0.4, kI: 0.4, kD: 0.0, intgLimitP: 10, intgStartP: 210, intgLimitN: 0, delay: 80,
+        pvFunc: () => { return ebike.curBattI; }
     }];
 
     var gCcPid = new PidControllerGui(0.45, 0.4, 0, 20);
